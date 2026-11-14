@@ -17,7 +17,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: APP_ORIGIN
-        sync: false
+        value: https://hawlader-battery-erp.ar-rahim-41b.workers.dev
       - key: CSRF_SECRET
         generateValue: true
       - key: API_PROXY_SECRET

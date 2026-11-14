@@ -1,97 +1,100 @@
-# Cloudflare deployment
+# Cloudflare Free hosting
 
-This deployment runs the existing Next.js UI and NestJS API inside one Linux
-Container. The Worker exposes HTTPS, forwards requests to Next.js on port 8080,
-and keeps the API on private loopback port 3001. Next.js rewrites `/api/v1/*` to
-the API, so login cookies and CSRF remain on the same public origin. All business
-data and sessions stay in Neon PostgreSQL; container disk is disposable.
+Frontend: https://hawlader-battery-erp.ar-rahim-41b.workers.dev
 
-## Required account setup
+The frontend is a static Next.js export served by Cloudflare Workers Static Assets.
+Only /api/* requests invoke the lightweight Worker proxy. The Node/NestJS API
+runs separately on Render Free and uses the existing Neon PostgreSQL database.
+No Docker, paid Containers, or Workers Paid subscription is required for this path.
+Free quotas still apply. Render sleeps after 15 idle minutes and can take about
+a minute to wake. This is a free starting setup, not a promise of production uptime.
 
-- Enable the Workers Paid plan. Containers consume additional CPU, memory and
-  disk usage beyond the plan's included allowance; $5 is not a fixed total bill.
-- Use the existing migrated Neon database. Run `npm run db:migrate` from a trusted
-  machine before deploying a version with new migrations. The image does not
-  embed database credentials, bootstrap users, or migrate automatically.
-- Pick one HTTPS address, such as
-  `https://hawlader-battery-erp.YOUR-SUBDOMAIN.workers.dev`.
-  Find the Workers subdomain in the Cloudflare dashboard. This exact origin is
-  needed for authentication. Other hostnames redirect safe reads; writes to an
-  alternate hostname are rejected.
+## What is live
 
-The Worker routes everyone to the same named Container. It sleeps after ten
-minutes of inactivity. Its next request may take longer while Node and Neon
-start. PostgreSQL records survive sleep and image updates.
+The frontend has been published. API-dependent functions remain unavailable until
+the Render service is created and the proxy is configured. The static pages do
+not contain business records or credentials. Session permissions and all business
+writes are enforced by the API.
 
-## Deploy from this computer
+## Connect the API
 
-Install Docker Desktop with Linux containers and start it, then run from the
-repository root:
+1. Connect the Render account so the prepared service can be deployed, or create
+   a Blueprint using render.yaml from the GitHub repository.
+2. Select Free. The file explicitly uses the native Node runtime, Singapore,
+   a database-backed health check, and port binding on 0.0.0.0.
+3. Set DATABASE_URL to the existing Neon connection URL with SSL enabled. Keep
+   the database in Neon; do not create Render's temporary free database.
+4. Set API_PROXY_SECRET to the value in the ignored root .env.cloudflare file.
+   This shared secret must match the Worker. Render generates CSRF_SECRET once;
+   keep it stable to preserve sessions. APP_ORIGIN is already the Cloudflare URL.
+5. Deploy the service and get its HTTPS onrender.com address. Its direct health
+   endpoint should return JSON success. Other API paths reject requests that do
+   not contain the proxy secret, even if a forwarded IP header is supplied.
+6. From the repository root, run:
 
-```powershell
+~~~powershell
+npm run cf:secrets -- https://YOUR-API.onrender.com
+~~~
+
+The secrets command sends only API_URL and API_PROXY_SECRET to the free Worker,
+over stdin. DATABASE_URL and CSRF_SECRET remain on Render. It reads the shared
+secret from .env.cloudflare, which is ignored by Git and excluded from Docker.
+Never paste these secrets into chat or commit them to the repository.
+
+Existing database migrations are applied separately with npm run db:migrate,
+from a trusted environment. Service startup does not reset data, create users,
+or apply migrations automatically. Existing owner credentials continue to work.
+
+## Develop, build, and publish
+
+~~~powershell
 npm ci
-docker info
-npm run cf:login
+npm run cf:test
 npm run typecheck
-npm run build
+npm run cf:build
+npm run cf:login
 npm run cf:deploy
-npm run cf:secrets -- https://hawlader-battery-erp.YOUR-SUBDOMAIN.workers.dev
-```
+~~~
 
-The first deployment returns 503 until its three runtime secrets are set. The
-secrets command reads `DATABASE_URL` and `CSRF_SECRET` from the ignored root `.env`
-or process environment and sends only those plus `APP_ORIGIN` over stdin to
-Cloudflare. It never uploads `.env` or the direct migration URL. Keep the CSRF
-secret stable across deployments; changing it invalidates existing sessions.
-No credentials should be pasted into chat, Docker build arguments, or Git files.
+Use npm run dev for ordinary local Next.js/API development. To test the exported
+frontend with the Cloudflare asset router, build it and run:
 
-The Cloudflare config is `apps/cloudflare/wrangler.jsonc`. The Docker build context
-is the repository root, not `apps/web`. The container uses Linux-native `argon2`
-and Prisma dependencies generated during its Linux build.
+~~~powershell
+npm run dev --workspace @hawlader/cloudflare
+~~~
 
-## Deploy without Docker on this computer
+Static export routes are generated from the shared workspace menu. Customer IDs
+and preview module/view parameters are read in client components inside Suspense
+boundaries, so saved-customer sales and preview links still work. Unknown routes
+return 404. Legacy product/inventory entry links redirect to /inventory.
 
-The manually triggered GitHub workflow `.github/workflows/cloudflare.yml` builds
-the image on GitHub's Linux runner and deploys through Wrangler.
+The free config is apps/cloudflare/wrangler.free.jsonc. The previous optional
+paid Container configuration is retained separately as wrangler.jsonc and is
+not used by cf:deploy. Do not enable that alternative for a free deployment.
 
-1. Push the source to your GitHub repository.
-2. Create the GitHub environment `production`.
-3. Under that environment's **Secrets**, add:
-   - `CLOUDFLARE_API_TOKEN`: an account-scoped deployment token with the Worker,
-     Durable Object, Containers/Cloudchamber, and managed image registry access
-     required by Wrangler. Scope it to the intended Cloudflare account. Do not
-     use a Global API Key. Check Wrangler's permission error if a required scope
-     is missing rather than granting all account access.
-   - `CLOUDFLARE_ACCOUNT_ID`: the target account ID.
-   - `DATABASE_URL`: the pooled Neon connection URL with SSL enabled.
-   - `CSRF_SECRET`: a persistent random string of at least 32 characters.
-4. Under **Variables**, add `ERP_ORIGIN` with the full HTTPS origin.
-5. Open **Actions → Deploy ERP to Cloudflare → Run workflow**.
+## Future deployment from GitHub
 
-The workflow is manual; pushing code alone does not publish a new ERP version.
-It builds and checks before deployment, uploads runtime secrets, and checks the
-database health endpoint and login page. A failed health check is a failed
-deployment verification, even if Cloudflare accepted the image.
+The manual .github/workflows/cloudflare.yml workflow builds static pages and
+publishes to Cloudflare Free. It does not use Docker or provision a paid plan.
+Create the GitHub production environment with:
 
-## Verify before using real transactions
+- Secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, API_PROXY_SECRET.
+- Variables: API_URL (Render HTTPS origin), ERP_ORIGIN (the frontend HTTPS origin).
 
-Open `/api/v1/health` and `/login` on the configured address. Sign in with an
-existing owner account, then verify category filters, purchase receiving, sales,
-and stock changes using controlled records. Confirm staff permissions as well.
-Do not repeatedly submit a purchase or sale if a request times out; check its
-saved status first. The Worker does not automatically retry business requests.
+Use a Cloudflare deployment token scoped to this account's Workers scripts and
+static assets. The account ID is 41b2175b95eeb040ec1b4da3c20c8085. Never add the
+Neon connection URL to the frontend build. Run Deploy ERP frontend to Cloudflare
+Free from GitHub Actions when a release is ready.
 
-To add a custom domain later, configure its Worker custom domain in Cloudflare,
-update `APP_ORIGIN` through the secrets command (or `ERP_ORIGIN` in GitHub), and
-allow the running container to restart before using the new address. Runtime
-secret changes apply when a container next starts, not inside a running process.
+## Verify the complete deployment
 
-## Current verification limits
+Check /login and /api/v1/health on the Cloudflare address. Sign in, refresh a
+protected page, and verify logout, staff permissions, category filtering, customer
+selection, purchase receiving, and sales posting with controlled records. A hosted
+login page alone does not prove that the backend works. The Worker never
+retries a business write automatically after a timeout or connection error.
 
-A successful TypeScript check, app build, and Worker dry run do not verify a Linux
-container image or live Cloudflare deployment. Docker or the GitHub workflow must
-complete its build and live checks before the ERP is considered hosted.
-
-References: [Containers setup](https://developers.cloudflare.com/containers/get-started/),
-[runtime secrets](https://developers.cloudflare.com/containers/examples/env-vars-and-secrets/),
-[Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/).
+References:
+[Cloudflare static assets](https://developers.cloudflare.com/workers/static-assets/),
+[Render Free limits](https://render.com/docs/free),
+[Neon plans](https://neon.com/pricing).

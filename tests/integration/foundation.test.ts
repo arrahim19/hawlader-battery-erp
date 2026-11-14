@@ -253,13 +253,19 @@ test("public API requires the Cloudflare proxy secret while health remains avail
     const server = proxyApp.getHttpServer();
     await request(server).get("/api/v1/health").expect(200);
     await request(server).get("/api/v1/auth/csrf").expect(403);
-    await request(server).get("/api/v1/auth/csrf")
+    await request(server)
+      .get("/api/v1/auth/csrf")
       .set("X-ERP-Proxy-Secret", "incorrect")
-      .set("X-ERP-Client-IP", "192.0.2.1").expect(403);
-    await request(server).get("/api/v1/auth/csrf")
-      .set("X-ERP-Proxy-Secret", secret).expect(200);
-    await request(server).get("/api/v1/auth/me")
-      .set("X-ERP-Proxy-Secret", secret).expect(401);
+      .set("X-ERP-Client-IP", "192.0.2.1")
+      .expect(403);
+    await request(server)
+      .get("/api/v1/auth/csrf")
+      .set("X-ERP-Proxy-Secret", secret)
+      .expect(200);
+    await request(server)
+      .get("/api/v1/auth/me")
+      .set("X-ERP-Proxy-Secret", secret)
+      .expect(401);
   } finally {
     if (previous === undefined) delete process.env.API_PROXY_SECRET;
     else process.env.API_PROXY_SECRET = previous;

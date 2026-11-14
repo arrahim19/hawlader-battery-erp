@@ -16,6 +16,7 @@
     "cf:login": "npm run login --workspace @hawlader/cloudflare",
     "cf:deploy": "npm run deploy --workspace @hawlader/cloudflare",
     "cf:build": "node scripts/build-cloudflare-free.mjs",
+    "cf:test": "node --test tests/cloudflare/proxy.test.mjs",
     "cf:secrets": "node scripts/cloudflare-secrets.mjs",
     "build": "npm run db:generate && npm run build --workspace @hawlader/api && npm run build --workspace @hawlader/web",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.tools.json",
