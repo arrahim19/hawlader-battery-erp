@@ -22,6 +22,11 @@ function unavailable(): Response {
 export default {
   async fetch(request: Request, env: FreeEnv): Promise<Response> {
     const url = new URL(request.url);
+    // Next's static export uses .txt files for client navigation. Serve those
+    // payloads as assets, including beneath legacy paths with redirects.
+    if (!url.pathname.startsWith("/api/") && url.pathname.endsWith(".txt")) {
+      return env.ASSETS.fetch(request);
+    }
     if (url.pathname === "/")
       return Response.redirect(url.origin + "/dashboard", 302);
     if (

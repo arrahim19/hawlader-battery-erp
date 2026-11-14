@@ -28,6 +28,11 @@ test("static pages and legacy links need no API or paid services", async () => {
     { ASSETS: env.ASSETS },
   );
   assert.equal(await staticPage.text(), "static page");
+  const navigationPayload = await worker.fetch(
+    new Request("https://erp.example/inventory/__next._tree.txt"),
+    { ASSETS: env.ASSETS },
+  );
+  assert.equal(await navigationPayload.text(), "static page");
   for (const [path, expected] of [
     ["/", "/dashboard"],
     ["/products/new", "/inventory"],
