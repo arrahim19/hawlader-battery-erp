@@ -1,0 +1,46 @@
+name: Deploy ERP frontend to Cloudflare Free
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      API_URL: ${{ vars.API_URL }}
+      API_PROXY_SECRET: ${{ secrets.API_PROXY_SECRET }}
+      ERP_ORIGIN: ${{ vars.ERP_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check deployment settings
+        run: |
+          for key in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID API_URL API_PROXY_SECRET ERP_ORIGIN; do
+            if [ -z "${!key}" ]; then
+              echo "Missing production setting: $key"
+              exit 1
+            fi
+          done
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run cf:build
+      - run: npm run cf:deploy
+      - run: npm run cf:secrets
+      - name: Verify API and sign-in page
+        run: |
+          curl --fail --retry 12 --retry-all-errors --retry-delay 10 --max-time 90 "$ERP_ORIGIN/api/v1/health"
+          curl --fail --max-time 90 "$ERP_ORIGIN/login" --output /dev/null

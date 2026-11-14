@@ -1,0 +1,9 @@
+node_modules/
+**/.next/
+**/dist/
+.local/
+package-lock.json
+scripts/validate-phase1.mjs
+docs/
+test-results/
+playwright-report/

@@ -1,0 +1,2606 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hawlader Battery ERP — Critical Command Design",
+    "version": "0.1.0",
+    "description": "Phase 1 design only; no server implemented. Partial API coverage: critical posting commands. Full endpoint catalog: ../API.md. All stock/money commands use PostgreSQL transactions, business source uniqueness and idempotency. API DTOs never expose costs/profit to unauthorized users."
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "Proposed same-origin API; not running."
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Purchasing"
+    },
+    {
+      "name": "Sales"
+    },
+    {
+      "name": "Payments"
+    },
+    {
+      "name": "Replacements"
+    }
+  ],
+  "paths": {
+    "/purchases/{id}/receipts": {
+      "post": {
+        "operationId": "receivePurchase",
+        "summary": "Receive purchase stock",
+        "description": "Posts batch/units, movements, inventory/payable journal, receipt and audit atomically. Draft alone never adds stock.",
+        "tags": [
+          "Purchasing"
+        ],
+        "x-required-permission": "inventory.receive",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceivePurchase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sales/{id}/confirm": {
+      "post": {
+        "operationId": "confirmSale",
+        "summary": "Confirm sale once",
+        "description": "Rechecks exact units/FIFO stock and pricing; posts invoice, stock, cost, revenue, tenders and audit in one transaction. Already finalized under another key conflicts.",
+        "tags": [
+          "Sales"
+        ],
+        "x-required-permission": "sales.manage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmSale"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments": {
+      "post": {
+        "operationId": "recordPayment",
+        "summary": "Record allocated payment",
+        "description": "Partial payments update dues without re-recognizing revenue. Finance permission required for supplier outgoing payment.",
+        "tags": [
+          "Payments"
+        ],
+        "x-required-permission": "payments.customer OR finance.write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPayment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}/reverse": {
+      "post": {
+        "operationId": "reversePayment",
+        "summary": "Reverse a posted payment",
+        "description": "Linked allocation and journal reversal, never delete history; prevent repeat reversal.",
+        "tags": [
+          "Payments"
+        ],
+        "x-required-permission": "transactions.reverse",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReversePayment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/before-sale": {
+      "post": {
+        "operationId": "intakeBeforeSale",
+        "summary": "Register faulty unsold battery",
+        "description": "Requires normal sale-eligible shop-owned unit; creates case and immediately removes normal sale eligibility.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.intake.stock",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeforeSaleIntake"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/warranty-claims": {
+      "post": {
+        "operationId": "intakeCustomerWarranty",
+        "summary": "Receive customer warranty battery",
+        "description": "Verifies original sale/descendant, customer and warranty; records physical intake, claim receipt, movement and case. No shop inventory asset increase.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.intake.customer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerWarrantyIntake"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacement-dispatches": {
+      "post": {
+        "operationId": "dispatchReplacements",
+        "summary": "Dispatch claims on one challan",
+        "description": "All listed claims pending, shop-held and for matching supplier; custody and status change atomically.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.dispatch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchReplacements"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/{id}/review": {
+      "post": {
+        "operationId": "reviewReplacement",
+        "summary": "Acknowledge supplier review",
+        "description": "SENT_TO_COMPANY to UNDER_REVIEW only.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.dispatch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewReplacement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacement-receipts": {
+      "post": {
+        "operationId": "receiveReplacements",
+        "summary": "Receive partial supplier replacements",
+        "description": "One new ID per listed claim, linked history and correct carrying cost. No purchase; no commercial release before inspection.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.receive",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveReplacements"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/{id}/inspect": {
+      "post": {
+        "operationId": "inspectReplacement",
+        "summary": "Inspect and release successor",
+        "description": "PASS completes before-sale case with AVAILABLE successor, or readies customer RESERVED successor. FAIL keeps unavailable and case unresolved.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.receive",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectReplacement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/{id}/deliver": {
+      "post": {
+        "operationId": "deliverReplacement",
+        "summary": "Deliver reserved successor",
+        "description": "Exact claim/customer/unit must agree; receipt, customer custody and completion post once; no new revenue or warranty restart.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.deliver",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliverReplacement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/{id}/reject": {
+      "post": {
+        "operationId": "rejectReplacement",
+        "summary": "Record supplier rejection",
+        "description": "Only sent/reviewed cases. Faulty unit stays unavailable and physically unresolved until separately returned/disposed.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.dispatch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectReplacement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/replacements/{id}/resolve-rejection": {
+      "post": {
+        "operationId": "resolveRejection",
+        "summary": "Resolve rejected physical outcome",
+        "description": "One-time physical resolution. Disposal/write-off requires extra authorization; does not change REJECTED into successful COMPLETED.",
+        "tags": [
+          "Replacements"
+        ],
+        "x-required-permission": "replacements.resolve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/ResourceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRejection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed response; same-key replay returns same status/body.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "True on a committed same-payload replay.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or Origin denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource unavailable or hidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, version, stock, idempotency or posting conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Field or business-rule validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Safe internal failure; no partial transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable; retry according to client policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-hb_session",
+        "description": "Opaque secure HttpOnly session; backend RBAC and CSRF required."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Actor/operation-scoped UUID; identical canonical payload replays committed response. A new key cannot repost a finalized source.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "CsrfToken": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "description": "Session-bound token from CSRF bootstrap. Unsafe browser requests also require allowed Origin.",
+        "schema": {
+          "type": "string",
+          "minLength": 32
+        }
+      },
+      "ResourceId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "Money": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,2})?$",
+        "description": "BDT decimal string; supplied payments must be strictly positive, checked server-side."
+      },
+      "Quantity": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,14})(\\.[0-9]{1,3})?$",
+        "description": "Strictly positive base-unit quantity. Batteries require an integer; validated against product."
+      },
+      "BatteryIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "serialNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Manufacturer serial; required for SERIAL/BOTH products."
+          },
+          "productionDate": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [],
+        "description": "Server enforces product-specific SERIAL, PRODUCTION_DATE or BOTH requirements. Production date is not unique."
+      },
+      "Tender": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "BKASH",
+              "NAGAD",
+              "BANK_TRANSFER",
+              "OTHER"
+            ]
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Optional payment reference."
+          }
+        },
+        "required": [
+          "method",
+          "amount"
+        ]
+      },
+      "ReceivePurchase": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "receivedDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Delivery reference."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "purchaseItemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "$ref": "#/components/schemas/Quantity"
+                },
+                "batteryIdentities": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BatteryIdentity"
+                  },
+                  "minItems": 1,
+                  "maxItems": 200
+                }
+              },
+              "required": [
+                "purchaseItemId",
+                "quantity"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "receivedDate",
+          "items"
+        ]
+      },
+      "ConfirmSale": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tender"
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "payments"
+        ],
+        "description": "Posts stored draft; empty payments permits due sale. All stock/pricing/discount/warranty checks repeat inside the transaction."
+      },
+      "IntakeInspection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Inspection observations."
+          },
+          "testReadings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "maxProperties": 30
+          }
+        },
+        "required": [
+          "findings"
+        ]
+      },
+      "BeforeSaleIntake": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batteryUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "faultReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Fault reason."
+          },
+          "inspection": {
+            "$ref": "#/components/schemas/IntakeInspection"
+          }
+        },
+        "required": [
+          "batteryUnitId",
+          "supplierId",
+          "faultReason",
+          "inspection"
+        ]
+      },
+      "CustomerWarrantyIntake": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "saleUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "faultyUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "complaint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Customer complaint."
+          },
+          "inspection": {
+            "$ref": "#/components/schemas/IntakeInspection"
+          },
+          "warrantyOverrideReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Requires warranty.override, never automatically grants eligibility."
+          }
+        },
+        "required": [
+          "customerId",
+          "saleUnitId",
+          "faultyUnitId",
+          "supplierId",
+          "complaint",
+          "inspection"
+        ]
+      },
+      "DispatchReplacements": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dispatchDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Company/challan reference."
+          },
+          "replacementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 200,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "supplierId",
+          "dispatchDate",
+          "replacementIds"
+        ]
+      },
+      "ReviewReplacement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "supplierReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Supplier review acknowledgement."
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "supplierReference"
+        ]
+      },
+      "ReceiveReplacements": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receivedDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Supplier return reference."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "replacementId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "dispatchItemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "productId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "identity": {
+                  "$ref": "#/components/schemas/BatteryIdentity"
+                },
+                "equivalenceApprovalReason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000,
+                  "description": "Requires explicit replacement-equivalence authority."
+                }
+              },
+              "required": [
+                "replacementId",
+                "dispatchItemId",
+                "productId",
+                "identity"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "supplierId",
+          "receivedDate",
+          "items"
+        ],
+        "description": "Receive listed claims only. New units begin unavailable pending inspection; old identity remains intact. Customer is derived from claim."
+      },
+      "InspectReplacement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL"
+            ]
+          },
+          "findings": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Post-receipt inspection findings."
+          },
+          "testReadings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "maxProperties": 30
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "result",
+          "findings"
+        ]
+      },
+      "DeliverReplacement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "newBatteryUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deliveredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "recipient": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Recipient identity/acknowledgement."
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "customerId",
+          "newBatteryUnitId",
+          "deliveredDate",
+          "recipient"
+        ]
+      },
+      "RejectReplacement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Supplier rejection reason."
+          },
+          "supplierReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Supplier rejection reference."
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "reason",
+          "supplierReference"
+        ]
+      },
+      "ResolveRejection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "RETURN_TO_SHOP",
+              "RETURN_TO_CUSTOMER",
+              "DISPOSE"
+            ]
+          },
+          "occurredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Resolution and documented custody route."
+          },
+          "acknowledgementReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Required for customer return or consent-based disposal."
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "mode",
+          "occurredDate",
+          "reason"
+        ],
+        "description": "Validate source/ownership, actual custody, customer consent, approvals, and financial write-off treatment; cannot release customer-owned stock for sale."
+      },
+      "PaymentAllocation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "saleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "purchaseReceiptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "description": "Exactly one target; direction/party must agree. Locks target and validates remaining due."
+      },
+      "RecordPayment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "INCOMING",
+              "OUTGOING"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "BKASH",
+              "NAGAD",
+              "BANK_TRANSFER",
+              "OTHER"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Payment reference."
+          },
+          "advance": {
+            "type": "boolean",
+            "default": false
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAllocation"
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "direction",
+          "amount",
+          "method",
+          "occurredAt",
+          "advance",
+          "allocations"
+        ],
+        "description": "Exactly one party: customer incoming or supplier outgoing. Non-advance allocations equal total; advances may leave unapplied balance. Outgoing requires finance.write."
+      },
+      "ReversePayment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Mandatory financial reversal reason."
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "reason"
+        ]
+      },
+      "PostResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Committed domain state."
+          },
+          "documentNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Generated invoice/receipt/claim/challan/payment number."
+          },
+          "relatedIds": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ]
+      },
+      "CommandEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PostResult"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "Stable machine-readable error code."
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "description": "Safe user-facing error."
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Support trace reference."
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "requestId"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  }
+}

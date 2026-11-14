@@ -1,0 +1,173 @@
+{
+  "contractVersion": "0.1.0",
+  "status": "DESIGN_ONLY",
+  "initialState": "PENDING_RETURN",
+  "states": [
+    "PENDING_RETURN",
+    "SENT_TO_COMPANY",
+    "UNDER_REVIEW",
+    "REPLACEMENT_RECEIVED",
+    "READY_FOR_CUSTOMER_DELIVERY",
+    "COMPLETED",
+    "REJECTED"
+  ],
+  "sources": [
+    "BEFORE_SALE",
+    "CUSTOMER_WARRANTY"
+  ],
+  "transitions": [
+    {
+      "from": "PENDING_RETURN",
+      "event": "DISPATCH",
+      "to": "SENT_TO_COMPANY",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "SENT_TO_COMPANY",
+      "event": "ACKNOWLEDGE_REVIEW",
+      "to": "UNDER_REVIEW",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "SENT_TO_COMPANY",
+      "event": "RECEIVE_SUCCESSOR",
+      "to": "REPLACEMENT_RECEIVED",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "UNDER_REVIEW",
+      "event": "RECEIVE_SUCCESSOR",
+      "to": "REPLACEMENT_RECEIVED",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "SENT_TO_COMPANY",
+      "event": "REJECT",
+      "to": "REJECTED",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "UNDER_REVIEW",
+      "event": "REJECT",
+      "to": "REJECTED",
+      "sources": [
+        "BEFORE_SALE",
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "REPLACEMENT_RECEIVED",
+      "event": "PASS_INSPECTION",
+      "to": "COMPLETED",
+      "sources": [
+        "BEFORE_SALE"
+      ]
+    },
+    {
+      "from": "REPLACEMENT_RECEIVED",
+      "event": "PASS_INSPECTION",
+      "to": "READY_FOR_CUSTOMER_DELIVERY",
+      "sources": [
+        "CUSTOMER_WARRANTY"
+      ]
+    },
+    {
+      "from": "READY_FOR_CUSTOMER_DELIVERY",
+      "event": "DELIVER",
+      "to": "COMPLETED",
+      "sources": [
+        "CUSTOMER_WARRANTY"
+      ]
+    }
+  ],
+  "nonTransitionEvents": [
+    {
+      "state": "REPLACEMENT_RECEIVED",
+      "event": "FAIL_INSPECTION",
+      "effect": "Keep successor FAULTY/UNAVAILABLE; explicit supplier rework is required before production support."
+    },
+    {
+      "state": "REJECTED",
+      "event": "RESOLVE_REJECTION",
+      "effect": "Record physical return/disposal and outcomeResolvedAt once; do not convert adjudication to successful completion."
+    }
+  ],
+  "terminalAdjudicationStates": [
+    "COMPLETED",
+    "REJECTED"
+  ],
+  "closureGuards": {
+    "COMPLETED": "Before-sale successor released GOOD/AVAILABLE, or reserved customer successor delivered.",
+    "REJECTED": "Not physically closed until outcomeResolvedAt records return/disposal and required settlement."
+  },
+  "guardRules": [
+    "STK-04",
+    "STK-05",
+    "REP-01",
+    "REP-02",
+    "REP-03",
+    "REP-04",
+    "REP-05",
+    "REP-06",
+    "REP-07",
+    "REP-08",
+    "REP-09",
+    "REP-10",
+    "REP-11",
+    "SYS-01"
+  ],
+  "normalSaleEligibility": {
+    "condition": "GOOD",
+    "custody": "SHOP",
+    "ownership": "SHOP",
+    "commercialState": "AVAILABLE",
+    "additionalGuards": [
+      "Product active",
+      "No unresolved replacement",
+      "No reservation"
+    ]
+  },
+  "postReceiptSuccessor": {
+    "condition": "PENDING_INSPECTION",
+    "custody": "SHOP",
+    "commercialState": "UNAVAILABLE"
+  },
+  "customerRelease": {
+    "condition": "GOOD",
+    "custody": "SHOP",
+    "ownership": "CUSTOMER",
+    "commercialState": "RESERVED",
+    "requiredReferences": [
+      "customerId",
+      "replacementId"
+    ]
+  },
+  "beforeSaleRelease": {
+    "condition": "GOOD",
+    "custody": "SHOP",
+    "ownership": "SHOP",
+    "commercialState": "AVAILABLE"
+  },
+  "customerDelivery": {
+    "condition": "GOOD",
+    "custody": "CUSTOMER",
+    "ownership": "CUSTOMER",
+    "commercialState": "SOLD"
+  },
+  "documentation": "../STATE_MACHINES.md"
+}
