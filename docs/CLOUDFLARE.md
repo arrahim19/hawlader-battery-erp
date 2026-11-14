@@ -11,22 +11,31 @@ a minute to wake. This is a free starting setup, not a promise of production upt
 
 ## What is live
 
-The frontend has been published. API-dependent functions remain unavailable until
-the Render service is created and the proxy is configured. The static pages do
-not contain business records or credentials. Session permissions and all business
-writes are enforced by the API.
+The frontend and API are live, with the Worker proxy connected to
+https://hawlader-battery-api.onrender.com. The API runs on Render Free in Singapore
+and connects to the existing Neon database. No paid subscription was enabled.
+The static pages do not contain business records or credentials. Session
+permissions and all business writes are enforced by the API.
+
+Live verification passed for login, session persistence after refresh, inventory,
+the three fixed product categories, purchase/sales options, secure session cookies,
+and logout. Direct backend requests without the proxy secret are rejected.
+Verification did not create or modify business records; purchase and sales writes
+were covered by the separate isolated integration tests.
 
 ## Connect the API
 
-1. Connect the Render account so the prepared service can be deployed, or create
-   a Blueprint using render.yaml from the GitHub repository.
+The current service is already configured. To recreate this setup:
+
+1. Create a Blueprint using render.yaml from the GitHub repository.
 2. Select Free. The file explicitly uses the native Node runtime, Singapore,
    a database-backed health check, and port binding on 0.0.0.0.
 3. Set DATABASE_URL to the existing Neon connection URL with SSL enabled. Keep
    the database in Neon; do not create Render's temporary free database.
 4. Set API_PROXY_SECRET to the value in the ignored root .env.cloudflare file.
-   This shared secret must match the Worker. Render generates CSRF_SECRET once;
-   keep it stable to preserve sessions. APP_ORIGIN is already the Cloudflare URL.
+   This shared secret must match the Worker. The Blueprint generates CSRF_SECRET
+   once; the current service uses the existing stable secret. Keep it stable to
+   preserve sessions. APP_ORIGIN is already the Cloudflare URL.
 5. Deploy the service and get its HTTPS onrender.com address. Its direct health
    endpoint should return JSON success. Other API paths reject requests that do
    not contain the proxy secret, even if a forwarded IP header is supplied.
