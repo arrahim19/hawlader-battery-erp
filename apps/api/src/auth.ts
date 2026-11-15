@@ -15,7 +15,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { hash, verify } from "argon2";
+import argon2 from "argon2";
 import type { Request, Response } from "express";
 import type { CurrentUser } from "../../../packages/api-client/src";
 import { DatabaseService } from "./database.service";
@@ -47,7 +47,7 @@ function equal(a: string, b: string) {
 @Injectable()
 export class AuthService {
   private readonly config = settings();
-  private readonly dummyHash = hash(randomBytes(32), passwordOptions);
+  private readonly dummyHash = argon2.hash(randomBytes(32), passwordOptions);
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
   private tokenForSession(raw: string) {
@@ -199,7 +199,7 @@ export class AuthService {
     const user = await this.db.user.findUnique({
       where: { login: normalized },
     });
-    const valid = await verify(
+    const valid = await argon2.verify(
       user?.passwordHash ?? (await this.dummyHash),
       password,
     );
