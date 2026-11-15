@@ -10,7 +10,7 @@
       "entrypoint": "src/main.ts",
       "functions": {
         "src/main.ts": {
-          "includeFiles": "../../node_modules/{argon2,node-gyp-build,@phc/format}/**"
+          "includeFiles": "node_modules/{argon2,node-gyp-build,@phc/format}/**"
         }
       },
       "installCommand": "cd ../.. && npm ci",
