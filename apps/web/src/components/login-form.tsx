@@ -97,7 +97,7 @@ export function LoginForm() {
               {
                 icon: Boxes,
                 title: "Know your stock",
-                text: "Individual battery identity, complete history.",
+                text: "Product models, stock quantities, complete history.",
               },
               {
                 icon: Wrench,

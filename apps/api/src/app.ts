@@ -197,6 +197,7 @@ class FoundationController {
       accounts: "finance.read",
       reports: "reports.operational",
       settings: "settings.manage",
+      "recycle-bin": "parties.suppliers",
       users: "access.manage",
     };
     if (!permission[module]) throw new NotFoundException("Module not found.");

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
+import { Dialog, AlertDialog } from "radix-ui";
 import {
   Boxes,
   ChevronLeft,
@@ -13,6 +14,8 @@ import {
   Filter,
   LoaderCircle,
   Plus,
+  Pencil,
+  Trash2,
   Search,
   ShieldCheck,
   ShoppingCart,
@@ -30,14 +33,17 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   api,
+  csrf,
   post,
   type DashboardData,
   type SupplierList,
   type SupplierRecord,
 } from "@/lib/api";
 import { money } from "@/lib/utils";
+import { useCatalogResource } from "@/lib/use-catalog-resource";
 
 const supplierSchema = z.object({
+  productTypeId: z.string().uuid("Product Category নির্বাচন করুন।"),
   name: z.string().trim().min(1, "সাপ্লায়ারের নাম লিখুন।").max(160),
   phone: z
     .string()
@@ -48,6 +54,7 @@ const supplierSchema = z.object({
 });
 const columns = [
   "#",
+  "Product Category",
   "নাম",
   "কোম্পানি / ব্র্যান্ড",
   "মোবাইল",
@@ -56,7 +63,19 @@ const columns = [
   "অ্যাকশন",
 ];
 
-function SupplierForm({ preview }: { preview: boolean }) {
+function SupplierForm({
+  preview,
+  supplier,
+  onSaved,
+}: {
+  preview: boolean;
+  supplier?: SupplierRecord;
+  onSaved?: () => void;
+}) {
+  const categories = useCatalogResource<{ id: string; name: string }[]>(
+    preview ? null : "/suppliers/product-types",
+    0,
+  );
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -68,6 +87,7 @@ function SupplierForm({ preview }: { preview: boolean }) {
     setFields({});
     const form = new FormData(event.currentTarget);
     const result = supplierSchema.safeParse({
+      productTypeId: form.get("productTypeId"),
       name: form.get("name"),
       phone: form.get("phone"),
       company: form.get("company"),
@@ -86,8 +106,17 @@ function SupplierForm({ preview }: { preview: boolean }) {
     }
     setSaving(true);
     try {
-      await post<SupplierRecord>("/suppliers", result.data);
-      router.replace("/suppliers");
+      if (supplier) {
+        await api<SupplierRecord>("/suppliers/" + supplier.id, {
+          method: "PATCH",
+          headers: { "X-CSRF-Token": await csrf() },
+          body: JSON.stringify(result.data),
+        });
+      } else {
+        await post<SupplierRecord>("/suppliers", result.data);
+      }
+      if (onSaved) onSaved();
+      else router.replace("/suppliers");
     } catch (error) {
       setError(
         error instanceof Error
@@ -98,15 +127,43 @@ function SupplierForm({ preview }: { preview: boolean }) {
     }
   }
   return (
-    <Panel title="নতুন সাপ্লায়ার" icon={Truck}>
-      <form onSubmit={save} className="erp-form-body">
+    <Panel title={supplier ? "সাপ্লায়ার সম্পাদনা" : "নতুন সাপ্লায়ার"} icon={Truck}>
+      <form onSubmit={save} className="erp-form-body supplier-form">
         <fieldset disabled={saving}>
           <legend className="sr-only">Supplier contact information</legend>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="supplier-form-grid">
+            <div className="supplier-form-full">
+              <Field label="Product Category" required>
+                <select
+                  name="productTypeId"
+                  aria-label="Supplier product category"
+                  required
+                  defaultValue={supplier?.productTypeId ?? ""}
+                  disabled={categories.loading || !categories.data?.length}
+                >
+                  <option value="" disabled>
+                    {categories.loading
+                      ? "Loading categories..."
+                      : "ক্যাটাগরি নির্বাচন করুন"}
+                  </option>
+                  {categories.data?.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {categories.error || fields.productTypeId ? (
+                <p role="alert" className="mt-1 text-xs text-red-600">
+                  {categories.error || fields.productTypeId}
+                </p>
+              ) : null}
+            </div>
             <div>
               <Field label="নাম" required>
                 <input
                   name="name"
+                  defaultValue={supplier?.name}
                   aria-label="Supplier name"
                   autoComplete="name"
                   placeholder="সাপ্লায়ারের নাম"
@@ -131,6 +188,7 @@ function SupplierForm({ preview }: { preview: boolean }) {
               <Field label="মোবাইল নম্বর" required>
                 <input
                   name="phone"
+                  defaultValue={supplier?.phone ?? ""}
                   aria-label="Supplier mobile number"
                   type="tel"
                   autoComplete="tel"
@@ -152,10 +210,11 @@ function SupplierForm({ preview }: { preview: boolean }) {
                 </p>
               ) : null}
             </div>
-            <div>
+            <div className="supplier-form-company">
               <Field label="Company / Brand (optional)">
                 <input
                   name="company"
+                  defaultValue={supplier?.company ?? ""}
                   aria-label="Supplier company or brand"
                   autoComplete="organization"
                   placeholder="কোম্পানির নাম"
@@ -175,10 +234,11 @@ function SupplierForm({ preview }: { preview: boolean }) {
                 </p>
               ) : null}
             </div>
-            <div className="md:col-span-3">
+            <div className="supplier-form-full">
               <Field label="ঠিকানা (ঐচ্ছিক)">
                 <textarea
                   name="address"
+                  defaultValue={supplier?.address ?? ""}
                   aria-label="Supplier address (optional)"
                   autoComplete="street-address"
                   placeholder="ঠিকানা থাকলে লিখুন..."
@@ -214,20 +274,95 @@ function SupplierForm({ preview }: { preview: boolean }) {
           </p>
         ) : null}
         <div className="mt-4 flex justify-end gap-3">
-          <Button asChild variant="outline">
-            <Link href={workspaceHref("suppliers", "", preview)}>Cancel</Link>
-          </Button>
+          {!supplier ? (
+            <Button asChild variant="outline">
+              <Link href={workspaceHref("suppliers", "", preview)}>Cancel</Link>
+            </Button>
+          ) : null}
           <Button
             type="submit"
-            disabled={saving || preview}
+            disabled={
+              saving ||
+              preview ||
+              categories.loading ||
+              !categories.data?.length
+            }
             className="erp-button"
           >
             {saving ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            {saving ? "Saving..." : "Save Supplier"}
+            {saving
+              ? "Saving..."
+              : supplier
+                ? "Update Supplier"
+                : "Save Supplier"}
           </Button>
         </div>
       </form>
     </Panel>
+  );
+}
+
+function SupplierCategoryForm({
+  supplier,
+  onSaved,
+}: {
+  supplier: SupplierRecord;
+  onSaved: () => void;
+}) {
+  const categories = useCatalogResource<{ id: string; name: string }[]>(
+    "/suppliers/product-types",
+    0,
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+    const productTypeId = String(
+      new FormData(event.currentTarget).get("productTypeId") ?? "",
+    );
+    setSaving(true);
+    setError("");
+    try {
+      await post("/suppliers/" + supplier.id + "/category", { productTypeId });
+      onSaved();
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "ক্যাটাগরি সেভ করা যায়নি।",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <form onSubmit={save} className="mt-4 grid gap-3">
+      <Field label="Product Category" required>
+        <select
+          name="productTypeId"
+          aria-label="Supplier product category"
+          defaultValue={supplier.productTypeId ?? ""}
+          required
+          disabled={saving || categories.loading}
+        >
+          <option value="" disabled>
+            ক্যাটাগরি নির্বাচন করুন
+          </option>
+          {categories.data?.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {error || categories.error ? (
+        <p role="alert" className="text-xs text-red-600">
+          {error || categories.error}
+        </p>
+      ) : null}
+      <Button type="submit" disabled={saving || !categories.data?.length}>
+        {saving ? "Saving..." : "Save Category"}
+      </Button>
+    </form>
   );
 }
 
@@ -246,6 +381,32 @@ export function SupplierView({
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<SupplierRecord | null>(null);
+  const [deleting, setDeleting] = useState<SupplierRecord | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  async function deleteSupplier() {
+    if (!deleting || deletingBusy || preview) return;
+    setDeletingBusy(true);
+    setDeleteError("");
+    try {
+      await api("/suppliers/" + deleting.id, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": await csrf() },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      setSelectedId(null);
+      setDeleting(null);
+      setPage(1);
+      setRevision((value) => value + 1);
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "সাপ্লায়ার ডিলিট করা যায়নি।",
+      );
+    } finally {
+      setDeletingBusy(false);
+    }
+  }
   const [result, setResult] = useState<{
     key: string;
     data: SupplierList;
@@ -428,6 +589,9 @@ export function SupplierView({
                         >
                           <td>{(page - 1) * 10 + index + 1}</td>
                           <td>
+                            {supplier.productType?.name || "ক্যাটাগরি সেট করুন"}
+                          </td>
+                          <td>
                             <button
                               type="button"
                               className="text-left font-semibold text-green-800 hover:underline"
@@ -443,15 +607,41 @@ export function SupplierView({
                           </td>
                           <td>{supplier.active ? "Active" : "Inactive"}</td>
                           <td>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`View ${supplier.name}`}
-                              onClick={() => setSelectedId(supplier.id)}
-                            >
-                              <Eye />
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`View ${supplier.name}`}
+                                onClick={() => setSelectedId(supplier.id)}
+                              >
+                                <Eye />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Edit ${supplier.name}`}
+                                disabled={preview}
+                                onClick={() => setEditing(supplier)}
+                              >
+                                <Pencil />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600"
+                                aria-label={`Delete ${supplier.name}`}
+                                disabled={preview}
+                                onClick={() => {
+                                  setDeleteError("");
+                                  setDeleting(supplier);
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -496,20 +686,27 @@ export function SupplierView({
             </Panel>
             <Panel title="সাপ্লায়ারের বিস্তারিত" className="erp-details">
               {selected ? (
-                <dl>
-                  {[
-                    ["নাম", selected.name],
-                    ["কোম্পানি / ব্র্যান্ড", selected.company],
-                    ["মোবাইল", selected.phone],
-                    ["ঠিকানা", selected.address],
-                    ["স্ট্যাটাস", selected.active ? "Active" : "Inactive"],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <dt>{label}</dt>
-                      <dd className="break-words">{value || "—"}</dd>
-                    </div>
-                  ))}
-                </dl>
+                <>
+                  <dl>
+                    {[
+                      ["নাম", selected.name],
+                      ["কোম্পানি / ব্র্যান্ড", selected.company],
+                      ["মোবাইল", selected.phone],
+                      ["ঠিকানা", selected.address],
+                      ["স্ট্যাটাস", selected.active ? "Active" : "Inactive"],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd className="break-words">{value || "—"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <SupplierCategoryForm
+                    key={selected.id + (selected.productTypeId ?? "")}
+                    supplier={selected}
+                    onSaved={() => setRevision((value) => value + 1)}
+                  />
+                </>
               ) : (
                 <p className="erp-details-hint">
                   বিস্তারিত দেখতে তালিকা থেকে একটি সাপ্লায়ার বাছাই করুন।
@@ -519,6 +716,78 @@ export function SupplierView({
           </div>
         </>
       )}
+      <Dialog.Root
+        open={Boolean(editing)}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
+          <Dialog.Content className="feature-dialog supplier-edit-dialog">
+            <Dialog.Title className="text-xl font-bold">
+              Edit Supplier
+            </Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-slate-500">
+              সাপ্লায়ারের তথ্য পরিবর্তন করে সেভ করুন।
+            </Dialog.Description>
+            {editing ? (
+              <SupplierForm
+                key={editing.id}
+                preview={preview}
+                supplier={editing}
+                onSaved={() => {
+                  setEditing(null);
+                  setRevision((value) => value + 1);
+                }}
+              />
+            ) : null}
+            <Dialog.Close asChild>
+              <Button variant="outline" className="mt-3">
+                Close
+              </Button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <AlertDialog.Root
+        open={Boolean(deleting)}
+        onOpenChange={(open) => {
+          if (!open && !deletingBusy) setDeleting(null);
+        }}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
+          <AlertDialog.Content className="feature-dialog">
+            <AlertDialog.Title className="text-xl font-bold">
+              Delete Supplier
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-3 text-sm">
+              {deleting?.name} ডিলিট করতে চান? লেনদেন থাকা সাপ্লায়ার ডিলিট করা
+              যাবে না।
+            </AlertDialog.Description>
+            {deleteError ? (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {deleteError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-3">
+              <AlertDialog.Cancel asChild>
+                <Button variant="outline" disabled={deletingBusy}>
+                  Cancel
+                </Button>
+              </AlertDialog.Cancel>
+              <Button
+                disabled={deletingBusy}
+                className="bg-red-600 hover:bg-red-700"
+                onClick={deleteSupplier}
+              >
+                {deletingBusy ? "Deleting..." : "Delete Supplier"}
+              </Button>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </>
   );
 }

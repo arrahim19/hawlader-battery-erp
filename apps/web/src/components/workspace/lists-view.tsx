@@ -170,9 +170,8 @@ export function InventoryView({
             current === "batteries"
               ? [
                   "#",
-                  "Battery Unit ID",
                   "পণ্যের নাম",
-                  "সিরিয়াল / প্রোডাকশন ডেট",
+                  "Model",
                   "অবস্থা",
                   "মালিকানা",
                   "স্ট্যাটাস",
@@ -181,7 +180,7 @@ export function InventoryView({
               : current === "movements"
                 ? [
                     "তারিখ",
-                    "পণ্য / Battery ID",
+                    "Product / Model",
                     "মুভমেন্ট",
                     "পরিমাণ",
                     "রেফারেন্স",
@@ -291,10 +290,10 @@ export function ReplacementView({
                   <option>Customer Warranty Claim</option>
                 </select>
               </Field>
-              <Field label="Customer / Invoice / Battery ID">
-                <input placeholder="নাম, ফোন বা ব্যাটারি আইডি দিয়ে খুঁজুন..." />
+              <Field label="Customer / Invoice / Model">
+                <input placeholder="Search customer, invoice or model..." />
               </Field>
-              <Field label="Battery Unit" required>
+              <Field label="Product / Model" required>
                 <select>
                   <option value="">ব্যাটারি নির্বাচন করুন</option>
                 </select>
@@ -340,8 +339,8 @@ export function ReplacementView({
                       ? [
                           "রিসিভ নং",
                           "কোম্পানি",
-                          "পুরোনো Battery ID",
-                          "নতুন Battery ID",
+                          "Product / Model",
+                          "Product / Model",
                           "তারিখ",
                           "স্ট্যাটাস",
                         ]

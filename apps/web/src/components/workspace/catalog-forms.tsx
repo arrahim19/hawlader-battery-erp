@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { LoaderCircle, Plus } from "lucide-react";
 import { Field } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
@@ -82,20 +82,25 @@ export function ProductNameForm({
 export function ProductForm({
   metadata,
   typeId,
+  initialName = "",
   onTypeChange,
   onSaved,
   preview,
 }: {
   metadata: CatalogMetadata | null;
   typeId: string;
+  initialName?: string;
   onTypeChange: (id: string) => void;
   onSaved: (product: CatalogProduct) => void;
   preview: boolean;
 }) {
-  const id = useId();
+  const [productName, setProductName] = useState(initialName);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const selectedId = typeId || metadata?.types[0]?.id || "";
+  const names = (metadata?.categories ?? []).filter((category) =>
+    category.typeIds?.includes(selectedId),
+  );
   const type = metadata?.types.find((item) => item.id === selectedId);
   const individual = type?.trackingKind === "BATTERY_UNIT";
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -105,6 +110,10 @@ export function ProductForm({
     const text = (key: string) => String(form.get(key) ?? "").trim();
     if (!text("name") || !text("unit")) {
       setError("পণ্যের নাম ও ইউনিট লিখুন।");
+      return;
+    }
+    if (individual && !text("model")) {
+      setError("পণ্যের মডেল লিখুন।");
       return;
     }
     setSaving(true);
@@ -117,16 +126,14 @@ export function ProductForm({
           model: text("model"),
           unit: text("unit"),
           category: text("name"),
-          defaultSellingPrice: text("defaultSellingPrice"),
-          lowStockThreshold: text("lowStockThreshold"),
+          defaultSellingPrice: "0.00",
+          lowStockThreshold: "0",
           warrantyMonths: Number(text("warrantyMonths")),
           ...(individual
             ? {
                 capacityAh: text("capacityAh"),
-                voltage: text("voltage"),
-                identificationMethod: text("identificationMethod"),
               }
-            : { specifications: text("specifications") }),
+            : {}),
         }),
       );
     } catch (error) {
@@ -144,7 +151,10 @@ export function ProductForm({
               name="typeId"
               aria-label="New product category"
               value={selectedId}
-              onChange={(event) => onTypeChange(event.target.value)}
+              onChange={(event) => {
+                setProductName("");
+                onTypeChange(event.target.value);
+              }}
               required
             >
               <option value="" disabled>
@@ -159,43 +169,41 @@ export function ProductForm({
           </Field>
         </div>
         <Field label="Product Name" required>
-          <input
+          <select
             name="name"
             aria-label="Product name"
-            list={id + "-names"}
-            placeholder="পণ্যের নাম"
-            maxLength={160}
+            value={
+              names.some((name) => name.name === productName) ? productName : ""
+            }
+            onChange={(event) => setProductName(event.target.value)}
+            disabled={!names.length}
             required
-          />
+          >
+            <option value="" disabled>
+              {names.length
+                ? "পণ্যের নাম নির্বাচন করুন"
+                : "এই ক্যাটাগরিতে কোনো পণ্যের নাম নেই"}
+            </option>
+            {names.map((name) => (
+              <option key={name.id} value={name.name}>
+                {name.name}
+              </option>
+            ))}
+          </select>
+          {!names.length ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Inventory / Stock থেকে এই ক্যাটাগরিতে পণ্যের নাম যোগ করুন।
+            </p>
+          ) : null}
         </Field>
-        <Field label="Model">
-          <input name="model" maxLength={160} />
+        <Field label="Model" required={individual}>
+          <input name="model" maxLength={160} required={individual} />
         </Field>
         <Field label="Unit" required>
           <input
             name="unit"
             placeholder="যেমন: pcs, set"
             maxLength={30}
-            required
-          />
-        </Field>
-        <Field label="Default Selling Price (৳)" required>
-          <input
-            name="defaultSellingPrice"
-            type="number"
-            min="0"
-            step="0.01"
-            defaultValue="0.00"
-            required
-          />
-        </Field>
-        <Field label="Low Stock Threshold">
-          <input
-            name="lowStockThreshold"
-            type="number"
-            min="0"
-            step="0.001"
-            defaultValue="0"
             required
           />
         </Field>
@@ -207,6 +215,16 @@ export function ProductForm({
             max="600"
             step="1"
             defaultValue="0"
+            onFocus={(event) => {
+              if (event.currentTarget.value === "0")
+                event.currentTarget.select();
+            }}
+            onChange={(event) => {
+              event.currentTarget.value = event.currentTarget.value.replace(
+                /^0+(?=\d)/,
+                "",
+              );
+            }}
             required
           />
         </Field>
@@ -222,37 +240,9 @@ export function ProductForm({
                 required
               />
             </Field>
-            <Field label="Voltage" required>
-              <input
-                name="voltage"
-                type="number"
-                min="0.01"
-                max="99999999.99"
-                step="0.01"
-                required
-              />
-            </Field>
-            <Field label="Identification" required>
-              <select name="identificationMethod" defaultValue="SERIAL">
-                <option value="SERIAL">Serial Number</option>
-                <option value="PRODUCTION_DATE">Production Date</option>
-                <option value="BOTH">Both</option>
-              </select>
-            </Field>
           </>
-        ) : (
-          <Field label="Specifications" className="md:col-span-3">
-            <textarea name="specifications" maxLength={2000} />
-          </Field>
-        )}
+        ) : null}
       </fieldset>
-      <datalist id={id + "-names"}>
-        {metadata?.categories
-          .filter((category) => category.typeIds?.includes(selectedId))
-          .map((category) => (
-            <option key={category.id} value={category.name} />
-          ))}
-      </datalist>
       {!metadata?.types.length && !preview ? (
         <p className="mt-4 text-xs text-slate-500">
           প্রথমে Inventory / Stock থেকে Product Category ও পণ্যের নাম যোগ করুন।
@@ -272,7 +262,10 @@ export function ProductForm({
       ) : null}
       {preview ? <PreviewCatalogNote /> : null}
       <div className="mt-5 flex justify-end">
-        <Button type="submit" disabled={saving || preview || !type}>
+        <Button
+          type="submit"
+          disabled={saving || preview || !type || !names.length}
+        >
           {saving ? <LoaderCircle className="animate-spin" /> : <Plus />}
           {saving ? "Saving..." : "Save Product"}
         </Button>

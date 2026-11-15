@@ -5,6 +5,118 @@ import type {
   PurchaseOptions,
 } from "../../packages/api-client/src";
 
+for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
+  test(`purchase adds ${trackingKind} inline without dialogs or serial numbers`, async ({
+    page,
+  }) => {
+    const type = {
+      id: "type",
+      name: trackingKind === "BATTERY_UNIT" ? "Battery" : "Parts",
+      trackingKind,
+    };
+    const submitted: Record<string, unknown>[] = [];
+    let receipt: { items: object[] } | undefined;
+    await page.route("**/api/v1/**", async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname.replace("/api/v1", "");
+      if (path === "/auth/me")
+        return route.fulfill({
+          json: {
+            data: {
+              id: "owner",
+              name: "Owner",
+              login: "owner",
+              roles: ["OWNER"],
+              permissions: [
+                "purchases.manage",
+                "inventory.receive",
+                "catalog.write",
+              ],
+            },
+          },
+        });
+      if (path === "/auth/csrf")
+        return route.fulfill({ json: { data: { token: "csrf" } } });
+      if (path.startsWith("/modules/"))
+        return route.fulfill({ json: { data: { status: "FOUNDATION_ONLY" } } });
+      if (path === "/purchases/options")
+        return route.fulfill({
+          json: {
+            data: {
+              types: [type],
+              products: [],
+              productNames: [
+                { id: "name", name: "Fixed Product Name", typeId: type.id },
+              ],
+              suppliers: [
+                {
+                  id: "supplier",
+                  name: "Supplier",
+                  company: null,
+                  productTypeId: type.id,
+                },
+              ],
+              paymentAccounts: [],
+            },
+          },
+        });
+      if (path === "/products" && request.method() === "POST") {
+        const body = request.postDataJSON();
+        submitted.push(body);
+        return route.fulfill({
+          json: { data: { ...body, id: "created-product", type } },
+        });
+      }
+      if (path === "/purchases/receive") {
+        receipt = request.postDataJSON();
+        return route.abort();
+      }
+      return route.abort();
+    });
+    await page.goto("/purchases/new");
+    await page
+      .getByLabel("Purchase product type", { exact: true })
+      .selectOption("type");
+    await page
+      .getByLabel("Purchase product", { exact: true })
+      .selectOption("Fixed Product Name");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "New Product", exact: true }),
+    ).toHaveCount(0);
+    await page.getByLabel("Purchase supplier").selectOption("supplier");
+    if (trackingKind === "BATTERY_UNIT") {
+      await page.getByLabel("Purchase product model").fill("6-EV-200A");
+      await page.getByLabel("Purchase product capacity").fill("200");
+    } else
+      await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
+    await expect(page.getByLabel("Purchase product unit")).toHaveCount(0);
+    const warranty = page.getByLabel("Purchase product warranty");
+    await warranty.fill("06");
+    await expect(warranty).toHaveValue("6");
+    await page.getByLabel("Purchase quantity").fill("15");
+    await page.getByLabel("Unit purchase price").fill("10000");
+    await page
+      .getByRole("button", { name: "Add to List", exact: true })
+      .click();
+    await expect(page.locator(".purchase-items tbody tr")).toHaveCount(1);
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toMatchObject({
+      name: "Fixed Product Name",
+      category: "Fixed Product Name",
+      unit: "pcs",
+      warrantyMonths: 6,
+      model: trackingKind === "BATTERY_UNIT" ? "6-EV-200A" : "",
+    });
+    expect(submitted[0]).not.toHaveProperty("identificationMethod");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.locator('input[type="date"]').fill("2026-11-15");
+    await page.getByRole("button", { name: /Receive.*Confirm/ }).click();
+    await expect.poll(() => receipt?.items.length).toBe(1);
+    expect(receipt?.items[0]).not.toHaveProperty("identities");
+  });
+}
+
 test("purchase navigation and delayed list responses keep the layout stable", async ({
   page,
 }, info) => {
@@ -149,17 +261,6 @@ test("purchase navigation and delayed list responses keep the layout stable", as
   await expect(page.getByLabel("Purchase supplier")).toBeEnabled();
   await page.evaluate(() => document.fonts.ready);
   const original = await shellGeometry();
-  const spacing = await page
-    .locator(".desktop-sidebar .nav-children")
-    .evaluate((node) => ({
-      gap: parseFloat(getComputedStyle(node).marginTop),
-      padding: parseFloat(
-        getComputedStyle(node.querySelector(".nav-child")!).paddingTop,
-      ),
-    }));
-  expect(spacing.gap).toBeGreaterThanOrEqual(8);
-  expect(spacing.padding).toBeGreaterThanOrEqual(10);
-
   blockModule = true;
   await tabs.getByRole("link", { name: "Purchase List", exact: true }).click();
   await expect(page).toHaveURL(/\/purchases\/list$/);
@@ -230,8 +331,26 @@ test("new purchase form keeps its geometry while options load and retry", async 
     ],
   };
   const options: PurchaseOptions = {
+    productNames: [
+      {
+        id: "inventory-name",
+        name: "Inventory Battery Name",
+        typeId: "battery-type",
+      },
+    ],
     suppliers: [
-      { id: "supplier-one", name: "Example Supplier", company: null },
+      {
+        id: "supplier-one",
+        name: "Example Supplier",
+        company: null,
+        productTypeId: "battery-type",
+      },
+      {
+        id: "supplier-parts",
+        name: "Parts Supplier",
+        company: null,
+        productTypeId: "part-type",
+      },
     ],
     types: [
       { id: "battery-type", name: "Battery", trackingKind: "BATTERY_UNIT" },
@@ -243,8 +362,10 @@ test("new purchase form keeps its geometry while options load and retry", async 
         id: "battery-one",
         name: "Example Battery",
         model: "12V 100Ah",
+        warrantyMonths: 6,
+        capacityAh: "100",
         unit: "pcs",
-        identificationMethod: "SERIAL",
+
         type: {
           id: "battery-type",
           name: "Battery",
@@ -256,12 +377,17 @@ test("new purchase form keeps its geometry while options load and retry", async 
         name: "Example Auto Part",
         model: "Standard",
         unit: "pcs",
-        identificationMethod: null,
+
         type: { id: "part-type", name: "Auto Parts", trackingKind: "QUANTITY" },
       },
     ],
     paymentAccounts: [{ id: "cash-one", name: "Cash", paymentMethod: "CASH" }],
   };
+  options.products.push({
+    ...options.products[0],
+    id: "battery-second-model",
+    model: "12V 200Ah",
+  });
   let blockModule = true;
   let optionsFail = false;
   let emptyOptions = false;
@@ -316,7 +442,20 @@ test("new purchase form keeps its geometry while options load and retry", async 
               productCount: type.id === "empty-type" ? 0 : 1,
             })),
             brands: [],
-            categories: [],
+            categories: [
+              {
+                id: "inventory-name",
+                name: "Inventory Battery Name",
+                typeIds: ["battery-type"],
+                productCount: 0,
+              },
+              {
+                id: "parts-name",
+                name: "Inventory Parts Name",
+                typeIds: ["part-type"],
+                productCount: 0,
+              },
+            ],
             totalProducts: 2,
           },
         },
@@ -336,8 +475,8 @@ test("new purchase form keeps its geometry while options load and retry", async 
         ".purchase-details > .erp-panel-heading",
         ".purchase-details > .erp-form-body",
         ".purchase-basics",
-        ".purchase-basics .erp-field",
-        ".purchase-basics .erp-field > span",
+        ".purchase-basics > .erp-field",
+        ".purchase-basics > .erp-field > span",
         ".purchase-product-heading",
         ".purchase-product-heading > h3",
         ".purchase-product-heading > button",
@@ -382,7 +521,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   releaseOptions!();
   await expect(
     page.getByLabel("Purchase supplier").locator("option"),
-  ).toHaveCount(2);
+  ).toHaveCount(1);
   await expect(productType).toBeEnabled();
   await expect(productType.locator("option")).toHaveCount(4);
   await expect(productType.locator("option")).toHaveText([
@@ -400,45 +539,43 @@ test("new purchase form keeps its geometry while options load and retry", async 
 
   await productType.selectOption("battery-type");
   await expect(productSelect).toBeEnabled();
-  await expect(productSelect.locator("option")).toHaveCount(2);
-  await expect(productSelect.locator('option[value=""]')).toHaveText(
-    "পণ্য নির্বাচন করুন",
-  );
-  await expect(
-    productSelect.locator('option[value="battery-one"]'),
-  ).toHaveCount(1);
-  await expect(productSelect.locator('option[value="part-one"]')).toHaveCount(
-    0,
-  );
-  expect(await formGeometry()).toEqual(reserved);
-  await productSelect.selectOption("battery-one");
+  await expect(productSelect.locator("option")).toHaveCount(3);
+  await productSelect.selectOption("Inventory Battery Name");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByLabel("Purchase product capacity")).toBeVisible();
+  await productSelect.selectOption("Example Battery");
+  await expect(page.getByLabel("Purchase product model")).toHaveValue("");
+  const modelSelect = page.getByLabel("Purchase product model", {
+    exact: true,
+  });
+  await modelSelect.fill("12V 200Ah");
+  await expect(productSelect).toHaveValue("Example Battery");
+  await modelSelect.fill("12V 100Ah");
+  await expect(page.getByLabel("Purchase product warranty")).toHaveValue("");
+  await expect(page.getByLabel("Purchase product capacity")).toHaveValue("");
+  await expect(page.locator('input[type="date"]')).toHaveValue("");
   await quantity.fill("2");
   await unitPrice.fill("1500.00");
   await expect(
     page.getByRole("button", { name: /Battery Identification/ }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /Battery Identification/ }).click();
-  await page
-    .getByLabel("Battery 1 serial number", { exact: true })
-    .fill("STALE-IDENTITY");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
+  ).toHaveCount(0);
   expect(await formGeometry()).toEqual(reserved);
-  // A type switch clears the draft line and its product-specific identities.
+  // A type switch clears the draft line.
   await productType.selectOption("part-type");
+  await expect(
+    productSelect.locator('option[value="Inventory Battery Name"]'),
+  ).toHaveCount(0);
   await expect(productSelect).toHaveValue("");
   await expect(quantity).toHaveValue("1");
   await expect(unitPrice).toHaveValue("");
   await expect(productSelect.locator("option")).toHaveCount(2);
-  await expect(productSelect.locator('option[value="part-one"]')).toHaveCount(
-    1,
-  );
   await expect(
-    productSelect.locator('option[value="battery-one"]'),
+    productSelect.locator('option[value="Example Auto Part"]'),
+  ).toHaveCount(1);
+  await expect(
+    productSelect.locator('option[value="Example Battery"]'),
   ).toHaveCount(0);
-  await productSelect.selectOption("part-one");
+  await productSelect.selectOption("Example Auto Part");
   await expect(
     page.getByRole("button", { name: /Battery Identification/ }),
   ).toHaveCount(0);
@@ -454,14 +591,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
     page.getByRole("button", { name: "Add to List", exact: true }),
   ).toBeDisabled();
   expect(await formGeometry()).toEqual(reserved);
-  await page.getByRole("button", { name: "New Product", exact: true }).click();
-  await expect(
-    page.getByLabel("New product category", { exact: true }),
-  ).toHaveValue("empty-type");
-  await page
-    .getByRole("button", { name: "Close purchase product dialog", exact: true })
-    .click();
-  expect(await formGeometry()).toEqual(reserved);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   const section = async (index: number) => {
     if (info.project.name !== "mobile") return;
@@ -488,21 +618,15 @@ test("new purchase form keeps its geometry while options load and retry", async 
       .toBe(true);
   };
   await productType.selectOption("battery-type");
-  await productSelect.selectOption("battery-one");
+  await productSelect.selectOption("Example Battery");
+  await page.getByLabel("Purchase product model").fill("12V 100Ah");
   await expect(quantity).toHaveValue("1");
   await expect(unitPrice).toHaveValue("");
   await unitPrice.fill("1500.00");
-  await page.getByRole("button", { name: /Battery Identification/ }).click();
+  await page.getByLabel("Purchase product capacity").fill("100");
   await expect(
     page.getByLabel("Battery 1 serial number", { exact: true }),
-  ).toHaveValue("");
-  await page
-    .getByLabel("Battery 1 serial number", { exact: true })
-    .fill("LAYOUT-BATTERY-ONE");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Add to List", exact: true }).click();
   await expect(page.locator(".purchase-items tbody tr")).toHaveCount(1);
   await expect(productType).toHaveValue("battery-type");
@@ -560,7 +684,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   releaseOptions!();
   await expect(
     page.getByLabel("Purchase supplier").locator("option"),
-  ).toHaveCount(2);
+  ).toHaveCount(1);
   await expect(page.locator(".purchase-page").getByRole("alert")).toHaveCount(
     0,
   );
@@ -579,6 +703,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await expect(
     page.getByLabel("Purchase supplier").locator("option"),
   ).toHaveCount(1);
+  await productType.selectOption("battery-type");
   await expect(
     page.locator('.purchase-details a[href="/suppliers/new"]'),
   ).toBeVisible();

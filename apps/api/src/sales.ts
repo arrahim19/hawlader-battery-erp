@@ -45,11 +45,6 @@ class CompleteSaleItemDto {
   @IsUUID() productId!: string;
   @IsInt() @Min(1) @Max(10000) quantity!: number;
   @Matches(/^\d{1,14}(?:\.\d{1,2})?$/) unitPrice!: string;
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(500)
-  @IsUUID("all", { each: true })
-  batteryUnitIds?: string[];
 }
 class CompleteSaleDto {
   @IsUUID() customerId!: string;
@@ -140,7 +135,7 @@ export class SalesController {
           type: { select: { id: true, name: true, trackingKind: true } },
           batteryUnits: {
             where: availableUnit,
-            select: { id: true, serialNumber: true, productionDate: true },
+            select: { id: true },
             orderBy: [{ batch: { acquiredAt: "asc" } }, { id: "asc" }],
           },
           batches: {
@@ -185,11 +180,6 @@ export class SalesController {
                     new Prisma.Decimal(0),
                   )
                   .toString(),
-          units: batteryUnits.map((unit) => ({
-            ...unit,
-            productionDate:
-              unit.productionDate?.toISOString().slice(0, 10) ?? null,
-          })),
         })),
         customers: await customerRecords(this.db, customers),
         paymentAccounts,
@@ -452,22 +442,11 @@ export class SalesController {
               throw new BadRequestException(
                 "A sale can include at most 500 batteries.",
               );
-            if (
-              item.batteryUnitIds &&
-              (item.batteryUnitIds.length !== item.quantity ||
-                new Set(item.batteryUnitIds).size !== item.quantity)
-            )
-              throw new BadRequestException(
-                "Choose one distinct battery unit per quantity.",
-              );
             const units = await tx.batteryUnit.findMany({
               where: {
                 ...availableUnit,
                 productId: product.id,
                 batch: { acquiredAt: { lt: range.end } },
-                ...(item.batteryUnitIds
-                  ? { id: { in: item.batteryUnitIds } }
-                  : {}),
               },
               include: { batch: true },
               orderBy: [{ batch: { acquiredAt: "asc" } }, { id: "asc" }],
@@ -523,10 +502,6 @@ export class SalesController {
               });
             }
           } else {
-            if (item.batteryUnitIds?.length)
-              throw new BadRequestException(
-                "Quantity-tracked products do not use battery units.",
-              );
             const balances = await tx.inventoryBalance.findMany({
               where: {
                 location: "SHOP",

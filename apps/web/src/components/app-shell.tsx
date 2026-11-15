@@ -17,8 +17,8 @@ import {
   LogOut,
   Menu,
   Phone,
-  Plus,
   Settings2,
+  Trash2,
   ShoppingBag,
   ShoppingCart,
   Store,
@@ -32,7 +32,6 @@ import { cn } from "@/lib/utils";
 import { useSession } from "@/components/session-provider";
 import { Button } from "@/components/ui/button";
 import { workspaceHref } from "@/components/reference-ui";
-import { childNavigation } from "@/lib/workspace-navigation";
 
 export const navigation = [
   {
@@ -96,6 +95,12 @@ export const navigation = [
     permission: "access.manage",
   },
   {
+    label: "Recycle Bin",
+    href: "/recycle-bin",
+    icon: Trash2,
+    permission: "parties.suppliers",
+  },
+  {
     label: "Settings",
     href: "/settings",
     icon: Settings2,
@@ -126,7 +131,6 @@ export function AppShell({
   children,
   preview = false,
   previewModule = "dashboard",
-  previewView,
 }: {
   children: ReactNode;
   preview?: boolean;
@@ -139,13 +143,8 @@ export function AppShell({
   const current = preview ? previewModule : pathname.split("/")[1];
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  // Open the initial module once; navigation must not rearrange the sidebar.
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(
-    () => ({ [current]: true }),
-  );
   const [logoutError, setLogoutError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
-  const currentView = preview ? previewView : pathname.split("/")[2];
   const currentLabel =
     current === "replacements"
       ? "Replacement / Warranty"
@@ -207,66 +206,18 @@ export function AppShell({
         {visible.map((item) => {
           const key = item.href.slice(1);
           const active = key === current;
-          const children = childNavigation[key]?.filter(
-            (child) =>
-              preview ||
-              !child.permission ||
-              user?.permissions.includes(child.permission),
-          );
-          const selected = currentView || children?.[0]?.view;
-          const hasChildren = Boolean(children?.length);
-          const expanded = expandedMenus[key] ?? false;
           return (
-            <div key={item.href}>
-              <div className={cn("nav-row", hasChildren && "has-children")}>
-                <Link
-                  href={workspaceHref(key, "", preview)}
-                  title={collapsed ? item.label : undefined}
-                  onClick={() => setOpen(false)}
-                  className={cn("nav-item", active && "active")}
-                  aria-current={active ? "page" : undefined}
-                >
-                  <item.icon size={20} strokeWidth={1.7} />
-                  <span>{item.label}</span>
-                </Link>
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    className="nav-toggle"
-                    aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label}`}
-                    aria-expanded={expanded}
-                    onClick={() =>
-                      setExpandedMenus((menus) => ({
-                        ...menus,
-                        [key]: !expanded,
-                      }))
-                    }
-                  >
-                    <ChevronDown className="nav-chevron" size={14} />
-                  </button>
-                ) : null}
-              </div>
-              {expanded && children ? (
-                <div className="nav-children">
-                  {children.map((child) => (
-                    <Link
-                      key={child.view}
-                      href={workspaceHref(key, child.view, preview)}
-                      onClick={() => setOpen(false)}
-                      className={cn(
-                        "nav-child",
-                        active && selected === child.view && "active",
-                      )}
-                      aria-current={
-                        active && selected === child.view ? "page" : undefined
-                      }
-                    >
-                      <Plus size={13} />
-                      <span>{child.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              ) : null}
+            <div key={item.href} className="nav-row">
+              <Link
+                href={workspaceHref(key, "", preview)}
+                title={collapsed ? item.label : undefined}
+                onClick={() => setOpen(false)}
+                className={cn("nav-item", active && "active")}
+                aria-current={active ? "page" : undefined}
+              >
+                <item.icon size={20} strokeWidth={1.7} />
+                <span>{item.label}</span>
+              </Link>
             </div>
           );
         })}

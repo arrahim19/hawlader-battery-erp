@@ -95,7 +95,14 @@ after(async () => {
 
 test("supplier contacts enforce sessions, permissions, CSRF, and validated fields", async () => {
   const count = await db.supplier.count();
-  const body = { name: "Supplier guard " + id, phone: "01712345678" };
+  const type = await db.productType.findUniqueOrThrow({
+    where: { code: "BATTERY" },
+  });
+  const body = {
+    name: "Supplier guard " + id,
+    phone: "01712345678",
+    productTypeId: type.id,
+  };
   await request(app.getHttpServer()).get("/api/v1/suppliers").expect(401);
   await request(app.getHttpServer())
     .post("/api/v1/suppliers")
@@ -121,6 +128,8 @@ test("supplier contacts enforce sessions, permissions, CSRF, and validated field
     .send(body)
     .expect(403);
   for (const invalid of [
+    { ...body, productTypeId: undefined },
+    { ...body, productTypeId: randomUUID() },
     { ...body, name: "   " },
     { ...body, phone: "invalid" },
     { ...body, address: 123 },
@@ -142,6 +151,9 @@ test("supplier contacts enforce sessions, permissions, CSRF, and validated field
 
 test("suppliers persist without an address, are audited, and can be searched and paged", async () => {
   const before = await db.supplier.count();
+  const type = await db.productType.findUniqueOrThrow({
+    where: { code: "BATTERY" },
+  });
   const addresses = [undefined, "   ", null, "  Dhaka, Bangladesh  "];
   const created = [];
   for (const [index, address] of addresses.entries()) {
@@ -151,6 +163,7 @@ test("suppliers persist without an address, are audited, and can be searched and
       .set("Origin", origin())
       .set("X-CSRF-Token", await csrf(owner))
       .send({
+        productTypeId: type.id,
         name: "  " + name + "  ",
         phone: "01712345678",
         company: "  Company " + id + "  ",
@@ -163,6 +176,8 @@ test("suppliers persist without an address, are audited, and can be searched and
     assert.equal(supplier.company, "Company " + id);
     assert.equal(supplier.address, index === 3 ? "Dhaka, Bangladesh" : null);
     assert.equal(supplier.active, true);
+    assert.equal(supplier.productTypeId, type.id);
+    assert.equal(supplier.productType.name, type.name);
     const stored = await db.supplier.findUniqueOrThrow({
       where: { id: supplier.id },
     });
@@ -194,6 +209,36 @@ test("suppliers persist without an address, are audited, and can be searched and
   ).body.data;
   assert.equal(inactive.total, 1);
   assert.equal(inactive.items[0].id, created[0].id);
+
+  const parts = await db.productType.findUniqueOrThrow({
+    where: { code: "PARTS" },
+  });
+  const types = (await owner.get("/api/v1/suppliers/product-types").expect(200))
+    .body.data;
+  assert(types.some((item: { id: string }) => item.id === parts.id));
+  await staff.get("/api/v1/suppliers/product-types").expect(403);
+  const assign = async (supplierId: string, productTypeId: string) =>
+    owner
+      .post(`/api/v1/suppliers/${supplierId}/category`)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(owner))
+      .send({ productTypeId });
+  assert.equal((await assign(created[1].id, randomUUID())).status, 400);
+  assert.equal((await assign(randomUUID(), parts.id)).status, 404);
+  const assigned = await assign(created[1].id, parts.id);
+  assert.equal(assigned.status, 201);
+  assert.equal(assigned.body.data.productTypeId, parts.id);
+  assert.equal(assigned.body.data.productType.name, parts.name);
+  assert.equal(
+    (await db.supplier.findUniqueOrThrow({ where: { id: created[1].id } }))
+      .productTypeId,
+    parts.id,
+  );
+  assert(
+    await db.auditLog.findFirst({
+      where: { action: "SUPPLIER_CATEGORY_UPDATED", resourceId: created[1].id },
+    }),
+  );
 });
 
 test("catalog writes require permission, valid fields, Origin, and CSRF", async () => {
@@ -326,8 +371,7 @@ test("fixed product categories and their products persist, filter, and count wit
     unit: "piece",
     defaultSellingPrice: "15000.00",
     capacityAh: "200",
-    voltage: "12",
-    identificationMethod: "BOTH",
+    model: "Test model",
     warrantyMonths: 18,
   };
   const createdPart = (await create("products", part)).body.data;
@@ -338,7 +382,8 @@ test("fixed product categories and their products persist, filter, and count wit
   assert.equal(createdPart.defaultSellingPrice, "125.50");
   assert.equal(createdBattery.type.id, individual.id);
   assert.equal(createdBattery.brand, null);
-  assert.equal(createdBattery.identificationMethod, "BOTH");
+  assert.equal(createdBattery.voltage, null);
+  assert.equal(Object.hasOwn(createdBattery, "identificationMethod"), false);
   assert.equal(createdBattery.warrantyMonths, 18);
   assert.equal("defaultPurchasePrice" in createdPart, false);
   await create("products", part, 409);
@@ -350,7 +395,7 @@ test("fixed product categories and their products persist, filter, and count wit
     { ...part, defaultSellingPrice: "1.234" },
     { ...part, capacityAh: "12" },
     { ...battery, capacityAh: undefined },
-    { ...battery, identificationMethod: undefined },
+    { ...battery, model: undefined },
     { ...battery, voltage: "0" },
     { ...battery, defaultPurchasePrice: "100" },
   ])
@@ -458,7 +503,7 @@ test("product-name groups retain empty links and count and filter separately wit
     category: groupName,
     capacityAh: "150",
     voltage: "12",
-    identificationMethod: "SERIAL",
+    model: "Test model",
   });
   const parts: { id: string }[] = [];
   for (const model of ["Small", "Large"])
@@ -1318,7 +1363,10 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     });
   const cash = await db.account.findUniqueOrThrow({ where: { code: "1100" } });
   const supplier = await db.supplier.create({
-    data: { name: "Receiving supplier " + id },
+    data: {
+      name: "Receiving supplier " + id,
+      productType: { connect: { code: "BATTERY" } },
+    },
   });
   const quantityType = await db.productType.findUniqueOrThrow({
     where: { code: "PARTS" },
@@ -1353,7 +1401,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
       brand: "Purchase maker " + id,
       capacityAh: "100",
       voltage: "12",
-      identificationMethod: "BOTH",
+      model: "Test model",
     })
   ).body.data;
   assert.equal(
@@ -1366,8 +1414,21 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     .get("/api/v1/purchases/options")
     .expect(401);
   await staff.get("/api/v1/purchases/options").expect(403);
+  const purchaseName = await db.category.create({
+    data: {
+      name: "Purchase name " + id,
+      normalizedName: "purchase name " + id,
+      types: { create: { typeId: unitType.id } },
+    },
+  });
   const options = (await owner.get("/api/v1/purchases/options").expect(200))
     .body.data;
+  assert.deepEqual(
+    options.productNames.filter(
+      (name: { id: string }) => name.id === purchaseName.id,
+    ),
+    [{ id: purchaseName.id, name: purchaseName.name, typeId: unitType.id }],
+  );
   const fixtureTypeIds = [unitType.id, emptyType.id, quantityType.id];
   assert.deepEqual(
     options.types.filter((type: { id: string }) =>
@@ -1391,20 +1452,21 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   assert(
     options.suppliers.some((item: { id: string }) => item.id === supplier.id),
   );
+  const partsSupplier = await db.supplier.create({
+    data: {
+      name: "Parts receiving supplier " + id,
+      productTypeId: quantityType.id,
+    },
+  });
   const body = {
     supplierId: supplier.id,
     purchaseDate: "2025-06-01",
     reference: "Receipt " + id,
     items: [
-      { productId: part.id, quantity: 3, unitPrice: "12.25" },
       {
         productId: battery.id,
         quantity: 2,
         unitPrice: "1000.10",
-        identities: [
-          { serialNumber: "SERIAL-A-" + id, productionDate: "2025-05-01" },
-          { serialNumber: "SERIAL-B-" + id, productionDate: "2025-05-01" },
-        ],
       },
     ],
     paidAmount: "500.05",
@@ -1443,6 +1505,11 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     .expect(400);
   const before = await db.purchase.count();
   for (const invalid of [
+    {
+      ...body,
+      items: [{ productId: part.id, quantity: 3, unitPrice: "12.25" }],
+    },
+    { ...body, supplierId: partsSupplier.id },
     { ...body, discount: "1" },
     { ...body, purchaseDate: "2025-02-31" },
     { ...body, supplierId: randomUUID() },
@@ -1453,7 +1520,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
       ...body,
       items: [
         {
-          ...body.items[1],
+          ...body.items[0],
           identities: [{ serialNumber: "Missing-date" + id }],
         },
       ],
@@ -1462,7 +1529,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
       ...body,
       items: [
         {
-          ...body.items[1],
+          ...body.items[0],
           identities: [
             { serialNumber: "DUPLICATE-" + id, productionDate: "2025-05-01" },
             {
@@ -1492,10 +1559,10 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     ),
   );
   const result = concurrent[0].body.data;
-  assert.equal(result.total, "2036.95");
+  assert.equal(result.total, "2000.20");
   assert.equal(result.paid, "500.05");
-  assert.equal(result.due, "1536.90");
-  assert.equal(result.quantity, 5);
+  assert.equal(result.due, "1500.15");
+  assert.equal(result.quantity, 2);
   assert.equal(await db.purchase.count(), before + 1);
   const receipt = await db.purchaseReceipt.findUniqueOrThrow({
     where: { id: result.receiptId },
@@ -1516,10 +1583,19 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
       },
     },
   });
-  assert.equal(receipt.items.length, 2);
-  const partBatch = receipt.items.find(
-    (item) => item.batch?.productId === part.id,
-  )!.batch!;
+  assert.equal(receipt.items.length, 1);
+  const partsReceived = await receive({
+    supplierId: partsSupplier.id,
+    purchaseDate: body.purchaseDate,
+    items: [{ productId: part.id, quantity: 3, unitPrice: "12.25" }],
+    paidAmount: "0.00",
+  });
+  assert.equal(partsReceived.status, 201, JSON.stringify(partsReceived.body));
+  assert.equal(partsReceived.body.data.total, "36.75");
+  const partBatch = await db.stockBatch.findFirstOrThrow({
+    where: { productId: part.id },
+    include: { balances: true },
+  });
   const unitBatch = receipt.items.find(
     (item) => item.batch?.productId === battery.id,
   )!.batch!;
@@ -1539,15 +1615,15 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     unitBatch.batteryUnits[0].internalCode,
     unitBatch.batteryUnits[1].internalCode,
   );
-  assert.equal(receipt.posting.movements.length, 3);
+  assert.equal(receipt.posting.movements.length, 2);
   const inventoryLine = receipt.posting.journal!.lines.find(
     (line) => line.account.code === "1300",
   )!;
   const payableLine = receipt.posting.journal!.lines.find(
     (line) => line.account.code === "2100",
   )!;
-  assert.equal(inventoryLine.debit.toFixed(2), "2036.95");
-  assert.equal(payableLine.credit.toFixed(2), "2036.95");
+  assert.equal(inventoryLine.debit.toFixed(2), "2000.20");
+  assert.equal(payableLine.credit.toFixed(2), "2000.20");
   assert.equal(payableLine.supplierId, supplier.id);
   assert.equal(receipt.paymentAllocations[0].amount.toFixed(2), "500.05");
   assert.equal(receipt.paymentAllocations[0].payment.assetAccountId, cash.id);
@@ -1572,26 +1648,25 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   ).body.data;
   assert.equal(
     listing.items.find((item: { id: string }) => item.id === result.id).due,
-    "1536.90",
+    "1500.15",
   );
   assert.equal(
     (await receive({ ...body, paidAmount: "500.00" }, key)).status,
     409,
   );
-  // A database serial uniqueness error after the parts line was inserted rolls back the entire purchase.
+  // Removed serial input is rejected without adding stock or a purchase.
   const duplicate = await receive({
     ...body,
     items: [
-      body.items[0],
       {
-        ...body.items[1],
+        ...body.items[0],
         quantity: 1,
-        identities: [body.items[1].identities![0]],
+        identities: [{ serialNumber: "LEGACY-SERIAL" }],
       },
     ],
   });
-  assert.equal(duplicate.status, 409, JSON.stringify(duplicate.body));
-  assert.equal(await db.purchase.count(), before + 1);
+  assert.equal(duplicate.status, 400, JSON.stringify(duplicate.body));
+  assert.equal(await db.purchase.count(), before + 2);
   assert.equal(await db.stockBatch.count({ where: { productId: part.id } }), 1);
   assert.equal(
     await db.batteryUnit.count({ where: { productId: battery.id } }),
@@ -1599,7 +1674,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   );
 });
 
-test("receiving without finance permission accepts due stock and repeated production dates but rejects payments", async () => {
+test("receiving without finance permission accepts due stock without product identification but rejects payments", async () => {
   const type = await db.productType.findFirstOrThrow({
     where: { code: "BATTERY" },
   });
@@ -1617,7 +1692,7 @@ test("receiving without finance permission accepts due stock and repeated produc
       brand: "Purchase maker " + id,
       capacityAh: "80",
       voltage: "12",
-      identificationMethod: "PRODUCTION_DATE",
+      model: "Test model",
     })
     .expect(201);
   const productId = response.body.data.id;
@@ -1650,10 +1725,6 @@ test("receiving without finance permission accepts due stock and repeated produc
         productId,
         quantity: 2,
         unitPrice: "0.00",
-        identities: [
-          { productionDate: "2025-05-01" },
-          { productionDate: "2025-05-01" },
-        ],
       },
     ],
   };
@@ -1794,32 +1865,49 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
       brand: "Sale maker " + id,
       capacityAh: "100",
       voltage: "12",
-      identificationMethod: "BOTH",
+      model: "Test model",
       warrantyMonths: 1,
       defaultSellingPrice: "150.10",
     })
   ).body.data;
   const supplier = await db.supplier.create({
-    data: { name: "Sale fixture supplier " + id },
+    data: { name: "Sale fixture supplier " + id, productTypeId: unitType.id },
   });
-  const receive = async (purchaseDate: string, items: object[]) =>
-    owner
-      .post("/api/v1/purchases/receive")
-      .set("Origin", origin())
-      .set("X-CSRF-Token", await csrf(owner))
-      .set("Idempotency-Key", randomUUID())
-      .send({ supplierId: supplier.id, purchaseDate, items })
-      .expect(201);
+  const partsSupplier = await db.supplier.create({
+    data: { name: "Sale parts supplier " + id, productTypeId: quantityType.id },
+  });
+  const receive = async (
+    purchaseDate: string,
+    items: {
+      productId: string;
+      quantity: number;
+      unitPrice: string;
+      identities?: { serialNumber: string; productionDate: string }[];
+    }[],
+  ) => {
+    for (const [productId, supplierId] of [
+      [part.id, partsSupplier.id],
+      [battery.id, supplier.id],
+    ]) {
+      const categoryItems = items.filter(
+        (item) => item.productId === productId,
+      );
+      if (!categoryItems.length) continue;
+      await owner
+        .post("/api/v1/purchases/receive")
+        .set("Origin", origin())
+        .set("X-CSRF-Token", await csrf(owner))
+        .set("Idempotency-Key", randomUUID())
+        .send({ supplierId, purchaseDate, items: categoryItems })
+        .expect(201);
+    }
+  };
   await receive("2025-01-01", [
     { productId: part.id, quantity: 2, unitPrice: "10.10" },
     {
       productId: battery.id,
       quantity: 2,
       unitPrice: "100.20",
-      identities: [
-        { serialNumber: "SALE-A-" + id, productionDate: "2024-12-01" },
-        { serialNumber: "SALE-B-" + id, productionDate: "2024-12-01" },
-      ],
     },
   ]);
   await receive("2025-01-02", [
@@ -1827,7 +1915,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
   ]);
   const units = await db.batteryUnit.findMany({
     where: { productId: battery.id },
-    orderBy: { serialNumber: "asc" },
+    orderBy: { id: "asc" },
   });
   await request(app.getHttpServer()).get("/api/v1/sales/options").expect(401);
   const before = await staff.get("/api/v1/sales/options").expect(200);
@@ -1863,7 +1951,6 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
         productId: battery.id,
         quantity: 1,
         unitPrice: "150.10",
-        batteryUnitIds: [units[0].id],
       },
     ],
     paidAmount: "100.05",
@@ -1986,7 +2073,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
     ],
     paidAmount: "0.00",
   });
-  assert.equal(invalid.status, 409, JSON.stringify(invalid.body));
+  assert.equal(invalid.status, 400, JSON.stringify(invalid.body));
   assert.equal(await db.sale.count(), saleCount);
   assert.equal((await stock())._sum.quantity?.toString(), "2");
   assert.equal((await complete({ ...body, paidAmount: "999.00" })).status, 400);
@@ -2037,4 +2124,110 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
     }),
     1,
   );
+});
+
+test("receiving batteries without serial numbers creates stock and replays safely", async () => {
+  const type = await db.productType.upsert({
+    where: { code: "BATTERY" },
+    update: {},
+    create: { code: "BATTERY", name: "Battery", trackingKind: "BATTERY_UNIT" },
+  });
+  const supplier = await db.supplier.create({
+    data: {
+      name: "No serial supplier " + id,
+      productTypeId: type.id,
+    },
+  });
+  const created = await owner
+    .post("/api/v1/products")
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({
+      typeId: type.id,
+      name: "No serial battery " + id,
+      model: "Test 200Ah",
+      unit: "pcs",
+      capacityAh: "200",
+    })
+    .expect(201);
+  const productId = created.body.data.id;
+  const key = randomUUID();
+  const body = {
+    supplierId: supplier.id,
+    purchaseDate: "2026-11-15",
+    items: [{ productId, quantity: 15, unitPrice: "0.00" }],
+  };
+  const send = async (payload: object, requestKey = key) =>
+    owner
+      .post("/api/v1/purchases/receive")
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(owner))
+      .set("Idempotency-Key", requestKey)
+      .send(payload);
+  const received = await send(body);
+  assert.equal(received.status, 201, JSON.stringify(received.body));
+  const replay = await send(body);
+  assert.equal(replay.status, 201, JSON.stringify(replay.body));
+  assert.equal(replay.body.data.receiptId, received.body.data.receiptId);
+  const units = await db.batteryUnit.findMany({ where: { productId } });
+  assert.equal(units.length, 15);
+  assert.equal(new Set(units.map((unit) => unit.internalCode)).size, 15);
+  assert(
+    units.every(
+      (unit) =>
+        unit.serialNumber === null &&
+        unit.normalizedSerial === null &&
+        unit.productionDate === null &&
+        unit.commercialState === "AVAILABLE",
+    ),
+  );
+  assert.equal(await db.stockMovement.count({ where: { productId } }), 15);
+  const tooMany = await send(
+    { ...body, items: [{ productId, quantity: 501, unitPrice: "0.00" }] },
+    randomUUID(),
+  );
+  assert.equal(tooMany.status, 400);
+  assert.equal(await db.batteryUnit.count({ where: { productId } }), 15);
+  const customer = await db.customer.create({
+    data: { name: "No serial customer " + id, phone: "01712345678" },
+  });
+  const sale = await owner
+    .post("/api/v1/sales/complete")
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .set("Idempotency-Key", randomUUID())
+    .send({
+      customerId: customer.id,
+      saleDate: "2026-11-15",
+      items: [{ productId, quantity: 3, unitPrice: "0.00" }],
+    });
+  assert.equal(sale.status, 201, JSON.stringify(sale.body));
+  assert.equal(
+    await db.batteryUnit.count({
+      where: { productId, commercialState: "AVAILABLE" },
+    }),
+    12,
+  );
+  assert.equal(
+    await db.batteryUnit.count({
+      where: { productId, commercialState: "SOLD" },
+    }),
+    3,
+  );
+  const options = await owner.get("/api/v1/sales/options").expect(200);
+  const available = options.body.data.products.find(
+    (item: { id: string }) => item.id === productId,
+  );
+  assert.equal(available.availableQuantity, "12");
+  assert.equal(Object.hasOwn(available, "units"), false);
+  const forbidden = await send(
+    {
+      ...body,
+      items: [
+        { ...body.items[0], identities: [{ serialNumber: "SHOULD-NOT-SAVE" }] },
+      ],
+    },
+    randomUUID(),
+  );
+  assert.equal(forbidden.status, 400);
 });

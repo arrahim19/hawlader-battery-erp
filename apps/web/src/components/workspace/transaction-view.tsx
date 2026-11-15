@@ -117,7 +117,6 @@ export function TransactionView({
   preview: boolean;
   view?: string;
 }) {
-  const [identity, setIdentity] = useState("serial");
   const [saleType, setSaleType] = useState("cash");
   const form = useRef<HTMLFormElement>(null);
   const current = [
@@ -132,19 +131,11 @@ export function TransactionView({
     : "new";
   const moduleId = purchase ? "purchases" : "sales";
   const columns = purchase
-    ? [
-        "#",
-        "Product",
-        "Identification",
-        "Qty",
-        "Unit Price (৳)",
-        "Total (৳)",
-        "Action",
-      ]
+    ? ["#", "Product", "Model", "Qty", "Unit Price (৳)", "Total (৳)", "Action"]
     : [
         "#",
         "Product",
-        "Serial / Identification",
+        "Model",
         "Qty",
         "Unit Price (৳)",
         "Discount (৳)",
@@ -317,53 +308,6 @@ export function TransactionView({
                         <DesignAction icon={Plus} feature="তালিকায় পণ্য যুক্ত করা">
                           Add to List
                         </DesignAction>
-                      </div>
-                      <div className="erp-identification">
-                        <div>
-                          <strong>Battery Identification (per unit)</strong>
-                          <fieldset className="erp-radio-group">
-                            <legend className="sr-only">
-                              Battery identification method
-                            </legend>
-                            {[
-                              ["serial", "Serial Number"],
-                              ["date", "Production Date"],
-                              ["both", "Both"],
-                            ].map(([value, label]) => (
-                              <label key={value}>
-                                <input
-                                  type="radio"
-                                  name="identification"
-                                  checked={identity === value}
-                                  onChange={() => setIdentity(value)}
-                                />
-                                {label}
-                              </label>
-                            ))}
-                          </fieldset>
-                        </div>
-                        <div>
-                          <strong>
-                            {identity === "date"
-                              ? "Production Date"
-                              : "Serial Numbers"}
-                          </strong>
-                          {identity === "date" ? (
-                            <input type="date" className="erp-input" />
-                          ) : (
-                            <input
-                              className="erp-input"
-                              placeholder="প্রতি ব্যাটারির সিরিয়াল নম্বর লিখুন..."
-                            />
-                          )}
-                          {identity === "both" ? (
-                            <input
-                              type="date"
-                              className="erp-input mt-2"
-                              aria-label="Production date"
-                            />
-                          ) : null}
-                        </div>
                       </div>
                     </>
                   ) : (

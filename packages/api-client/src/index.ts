@@ -6,6 +6,8 @@ export interface CurrentUser {
   permissions: string[];
 }
 export interface SupplierRecord {
+  productTypeId: string | null;
+  productType: { id: string; name: string } | null;
   id: string;
   name: string;
   company: string | null;
@@ -80,7 +82,6 @@ export interface CatalogProduct {
   warrantyMonths: number;
   capacityAh: string | null;
   voltage: string | null;
-  identificationMethod: "SERIAL" | "PRODUCTION_DATE" | "BOTH" | null;
   specifications: string | null;
   stock: {
     total: string;
@@ -97,12 +98,18 @@ export interface ProductList {
   pageSize: number;
 }
 export interface PurchaseOptions {
+  productNames?: { id: string; name: string; typeId: string }[];
   types: Pick<ProductTypeRecord, "id" | "name" | "trackingKind">[];
-  products: Pick<
-    CatalogProduct,
-    "id" | "name" | "model" | "unit" | "type" | "identificationMethod"
-  >[];
-  suppliers: { id: string; name: string; company: string | null }[];
+  products: (Pick<CatalogProduct, "id" | "name" | "model" | "unit" | "type"> & {
+    capacityAh?: string | null;
+    warrantyMonths?: number;
+  })[];
+  suppliers: {
+    id: string;
+    name: string;
+    company: string | null;
+    productTypeId: string | null;
+  }[];
   paymentAccounts: { id: string; name: string; paymentMethod: string | null }[];
 }
 export interface SalesOptions {
@@ -112,11 +119,6 @@ export interface SalesOptions {
     "id" | "name" | "model" | "unit" | "type" | "defaultSellingPrice"
   > & {
     availableQuantity: string;
-    units: {
-      id: string;
-      serialNumber: string | null;
-      productionDate: string | null;
-    }[];
   })[];
   customers: CustomerRecord[];
   paymentAccounts: { id: string; name: string; paymentMethod: string | null }[];

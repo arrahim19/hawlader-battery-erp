@@ -61,7 +61,6 @@ async function mockSalesWorkspace(page: Page) {
         type: { id: "parts", name: "Auto Parts", trackingKind: "QUANTITY" },
         defaultSellingPrice: "100.00",
         availableQuantity: "10",
-        units: [],
       },
       {
         id: "battery-one",
@@ -75,18 +74,6 @@ async function mockSalesWorkspace(page: Page) {
         },
         defaultSellingPrice: "1500.00",
         availableQuantity: "2",
-        units: [
-          {
-            id: "battery-unit-one",
-            serialNumber: "SALE-SERIAL-001",
-            productionDate: null,
-          },
-          {
-            id: "battery-unit-two",
-            serialNumber: "SALE-SERIAL-002",
-            productionDate: "2026-10-01",
-          },
-        ],
       },
     ],
     customers,
@@ -392,20 +379,9 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await product.selectOption("battery-one");
   await quantity.fill("2");
   await expect(price).toHaveValue("1500.00");
-  await page
-    .getByRole("button", { name: "Select Battery Units", exact: true })
-    .click();
-  const units = page.getByRole("group", {
-    name: "Sale battery units",
-    exact: true,
-  });
-  await expect(units.getByRole("checkbox")).toHaveCount(2);
-  await units.getByRole("checkbox", { name: /SALE-SERIAL-001/ }).check();
-  await units.getByRole("checkbox", { name: /SALE-SERIAL-002/ }).check();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
+  await expect(
+    page.getByRole("button", { name: "Select Battery Units", exact: true }),
+  ).toHaveCount(0);
   await add.click();
   await expect(itemRow("Sale Test Battery")).toBeVisible();
   const summary = (label: string) =>
@@ -459,7 +435,6 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
         productId: "battery-one",
         quantity: 2,
         unitPrice: "1500.00",
-        batteryUnitIds: ["battery-unit-one", "battery-unit-two"],
       },
     ],
     paidAmount: "1000.00",

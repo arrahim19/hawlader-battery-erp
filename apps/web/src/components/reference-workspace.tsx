@@ -11,6 +11,7 @@ import { CustomersView } from "@/components/workspace/customers-view";
 import { AccountsView } from "@/components/workspace/accounts-view";
 import { SupplierView } from "@/components/workspace/suppliers-view";
 import { PurchasesView } from "@/components/workspace/purchases-view";
+import { RecycleBinView } from "@/components/workspace/recycle-bin-view";
 export const referenceModules = [
   "products",
   "purchases",
@@ -20,6 +21,7 @@ export const referenceModules = [
   "customers",
   "suppliers",
   "accounts",
+  "recycle-bin",
 ];
 export function ReferenceWorkspace({
   moduleId,
@@ -44,6 +46,7 @@ export function ReferenceWorkspace({
       !loading &&
       !denied &&
       moduleId !== "products" &&
+      moduleId !== "recycle-bin" &&
       moduleId !== "sales" &&
       moduleId !== "customers" &&
       moduleId !== "purchases",
@@ -92,7 +95,9 @@ export function ReferenceWorkspace({
           {error}
         </div>
       ) : null}
-      {moduleId === "products" ? (
+      {moduleId === "recycle-bin" ? (
+        <RecycleBinView preview={preview} />
+      ) : moduleId === "products" ? (
         <CatalogView preview={preview} />
       ) : moduleId === "customers" ? (
         <CustomersView preview={preview} view={view} />

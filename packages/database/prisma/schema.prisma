@@ -221,6 +221,7 @@ model ProductType {
   active       Boolean      @default(true)
   products     Product[]    @relation("Product_type")
   categories   ProductTypeCategory[]
+  suppliers    Supplier[]
 }
 
 model Brand {
@@ -296,7 +297,7 @@ model BatteryProductDetail {
   createdAt             DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
   capacityAh            Decimal              @db.Decimal(10, 2)
-  voltage               Decimal              @db.Decimal(10, 2)
+  voltage               Decimal?             @db.Decimal(10, 2)
   identificationMethod  IdentificationMethod
   defaultWarrantyMonths Int                  @default(0)
   productId             String               @unique @db.Uuid
@@ -323,6 +324,8 @@ model Supplier {
   address             String?
   active              Boolean               @default(true)
   version             Int                   @default(1)
+  productTypeId       String?               @db.Uuid
+  productType         ProductType?          @relation(fields: [productTypeId], references: [id], onDelete: Restrict)
   brandId             String?               @db.Uuid
   brand               Brand?                @relation("Supplier_brand", fields: [brandId], references: [id], onDelete: Restrict)
   purchases           Purchase[]            @relation("Purchase_supplier")
@@ -335,6 +338,7 @@ model Supplier {
   payments            Payment[]             @relation("Payment_supplier")
 
   @@index([phone])
+  @@index([productTypeId])
 }
 
 model Customer {

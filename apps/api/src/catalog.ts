@@ -15,7 +15,7 @@ import {
   Req,
   ValidationPipe,
 } from "@nestjs/common";
-import { IdentificationMethod, Prisma, TrackingKind } from "@prisma/client";
+import { Prisma, TrackingKind } from "@prisma/client";
 import { Transform, Type } from "class-transformer";
 import {
   ArrayMaxSize,
@@ -89,9 +89,6 @@ class CreateProductDto {
   @IsInt() @Min(0) @Max(600) warrantyMonths = 0;
   @IsOptional() @Matches(/^\d{1,8}(?:\.\d{1,2})?$/) capacityAh?: string;
   @IsOptional() @Matches(/^\d{1,8}(?:\.\d{1,2})?$/) voltage?: string;
-  @IsOptional()
-  @IsEnum(IdentificationMethod)
-  identificationMethod?: IdentificationMethod;
   @Transform(trim)
   @IsOptional()
   @IsString()
@@ -123,7 +120,6 @@ const productFields = {
     select: {
       capacityAh: true,
       voltage: true,
-      identificationMethod: true,
       defaultWarrantyMonths: true,
     },
   },
@@ -143,8 +139,7 @@ function productDto(row: ProductRow) {
       partsDetail?.defaultWarrantyMonths ??
       0,
     capacityAh: batteryDetail?.capacityAh.toString() ?? null,
-    voltage: batteryDetail?.voltage.toString() ?? null,
-    identificationMethod: batteryDetail?.identificationMethod ?? null,
+    voltage: batteryDetail?.voltage?.toString() ?? null,
     specifications: partsDetail?.specifications ?? null,
     stock: {
       total: "0",
@@ -477,27 +472,22 @@ export class CatalogController {
       if (!type?.active || !productCategoryCodes.includes(type.code))
         throw new BadRequestException("Select an active product type.");
       const individual = type.trackingKind === TrackingKind.BATTERY_UNIT;
+      if (individual && !body.model?.trim())
+        throw new BadRequestException("Model is required for batteries.");
       if (
         individual &&
         (!body.capacityAh ||
-          !body.voltage ||
-          !body.identificationMethod ||
           new Prisma.Decimal(body.capacityAh).lte(0) ||
-          new Prisma.Decimal(body.voltage).lte(0))
+          (body.voltage != null && new Prisma.Decimal(body.voltage).lte(0)))
       )
         throw new BadRequestException(
-          "Positive capacity and voltage, and identification method are required for individually tracked products.",
+          "Positive capacity is required; voltage must be positive when provided.",
         );
       if (!individual && !body.category)
         throw new BadRequestException(
           "Category is required for quantity-tracked products.",
         );
-      if (
-        !individual &&
-        (body.capacityAh != null ||
-          body.voltage != null ||
-          body.identificationMethod != null)
-      )
+      if (!individual && (body.capacityAh != null || body.voltage != null))
         throw new BadRequestException(
           "Battery identification fields do not apply to this product type.",
         );
@@ -538,7 +528,9 @@ export class CatalogController {
           brand?.id ?? null,
           category?.id ?? null,
           individual ? new Prisma.Decimal(body.capacityAh!).toString() : null,
-          individual ? new Prisma.Decimal(body.voltage!).toString() : null,
+          individual && body.voltage != null
+            ? new Prisma.Decimal(body.voltage).toString()
+            : null,
           individual ? null : normalize(body.specifications ?? ""),
         ]),
       );
@@ -559,8 +551,8 @@ export class CatalogController {
                 batteryDetail: {
                   create: {
                     capacityAh: body.capacityAh!,
-                    voltage: body.voltage!,
-                    identificationMethod: body.identificationMethod!,
+                    voltage: body.voltage ?? null,
+                    identificationMethod: "SERIAL",
                     defaultWarrantyMonths: body.warrantyMonths,
                   },
                 },

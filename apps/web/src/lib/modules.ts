@@ -22,8 +22,7 @@ export const modules: Record<
   },
   sales: {
     title: "Sales",
-    description:
-      "Customer invoices, individual battery selections, and payments.",
+    description: "Customer invoices, product models, quantities, and payments.",
     phase: 4,
     columns: ["Invoice", "Date", "Customer", "Amount", "Payment status"],
   },
@@ -32,7 +31,7 @@ export const modules: Record<
     description:
       "A complete journey for every faulty battery and warranty claim.",
     phase: 5,
-    columns: ["Claim", "Battery ID", "Source", "Supplier", "Status"],
+    columns: ["Claim", "Product / Model", "Source", "Supplier", "Status"],
   },
   customers: {
     title: "Customers",
@@ -67,6 +66,12 @@ export const modules: Record<
     description: "Shop identity, invoice preferences, and warranty policies.",
     phase: 2,
     columns: ["Setting", "Value", "Status"],
+  },
+  "recycle-bin": {
+    title: "Recycle Bin",
+    description: "Deleted suppliers can be restored here.",
+    phase: 3,
+    columns: ["Name", "Type", "Deleted at", "Action"],
   },
   users: {
     title: "Users & permissions",

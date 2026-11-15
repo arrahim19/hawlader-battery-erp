@@ -240,19 +240,10 @@ test("sidebar and top bar keep their geometry throughout desktop navigation", as
   ).toHaveAttribute("aria-current", "page");
   await page.evaluate(() => document.fonts.ready);
   await expect(sidebar.locator(".nav-child")).toHaveCount(0);
-  await sidebar
-    .getByRole("button", { name: "Expand Purchase", exact: true })
-    .click();
-  await sidebar
-    .getByRole("button", { name: "Expand Sales", exact: true })
-    .click();
-  await expect(sidebar.locator(".nav-child")).toHaveCount(7);
-  await sidebar.locator(".sidebar-nav").evaluate((node) => {
-    node.scrollTop = 24;
-  });
+  await expect(sidebar.locator(".nav-toggle")).toHaveCount(0);
   const original = await geometry(page, ".desktop-sidebar");
   await monitorDesktop(page);
-  for (const href of ["/purchases", "/purchases/list"]) {
+  for (const href of ["/purchases"]) {
     await sidebar.locator(`a[href="${href}"]`).click();
     await expect(page).toHaveURL(href);
     if (href === "/purchases")
@@ -277,13 +268,13 @@ test("sidebar and top bar keep their geometry throughout desktop navigation", as
   await expect(page.getByLabel("Loading module", { exact: true })).toHaveCount(
     0,
   );
-  for (const href of ["/sales", "/sales/list", "/dashboard"]) {
+  for (const href of ["/sales", "/dashboard"]) {
     await sidebar.locator(`a[href="${href}"]`).first().click();
     await expect(page).toHaveURL(href);
     expect(await geometry(page, ".desktop-sidebar")).toEqual(original);
   }
   await page.goBack();
-  await expect(page).toHaveURL("/sales/list");
+  await expect(page).toHaveURL("/sales");
   expect(await geometry(page, ".desktop-sidebar")).toEqual(original);
   await page.goForward();
   await expect(page).toHaveURL("/dashboard");
@@ -319,18 +310,13 @@ test("sidebar and top bar keep their geometry throughout desktop navigation", as
   await page
     .getByRole("button", { name: "Expand navigation", exact: true })
     .click();
-  await expect(
-    sidebar.getByRole("button", { name: "Collapse Purchase", exact: true }),
-  ).toHaveAttribute("aria-expanded", "true");
-  await expect(
-    sidebar.getByRole("button", { name: "Collapse Sales", exact: true }),
-  ).toHaveAttribute("aria-expanded", "true");
+  await expect(sidebar.locator(".nav-toggle, .nav-child")).toHaveCount(0);
   expect(fixture.writes).toEqual([]);
   expect(fixture.unhandled).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
 
-test("a direct module entry keeps its submenu open across mobile drawer navigation", async ({
+test("a direct module entry keeps mobile navigation free of dropdowns", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "mobile", "Mobile drawer coverage");
@@ -348,13 +334,7 @@ test("a direct module entry keeps its submenu open across mobile drawer navigati
   });
   await open.click();
   const drawer = page.locator(".mobile-sidebar");
-  await expect(
-    drawer.getByRole("button", { name: "Collapse Purchase", exact: true }),
-  ).toHaveAttribute("aria-expanded", "true");
-  await expect(
-    drawer.getByRole("button", { name: "Expand Sales", exact: true }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await expect(drawer.locator(".nav-child")).toHaveCount(2);
+  await expect(drawer.locator(".nav-toggle, .nav-child")).toHaveCount(0);
   const original = await geometry(page, ".mobile-sidebar");
   for (const href of [
     "/sales",
@@ -362,7 +342,7 @@ test("a direct module entry keeps its submenu open across mobile drawer navigati
     "/replacements",
     "/accounts",
     "/dashboard",
-    "/purchases/list",
+    "/purchases",
   ]) {
     await drawer.locator(`.sidebar-nav a[href="${href}"]`).click();
     await expect(page).toHaveURL(href);
@@ -383,10 +363,7 @@ test("a direct module entry keeps its submenu open across mobile drawer navigati
     await open.click();
     await expect(drawer).toBeVisible();
     expect(await geometry(page, ".mobile-sidebar")).toEqual(original);
-    await expect(drawer.locator(".nav-child")).toHaveCount(2);
-    await expect(
-      drawer.getByRole("button", { name: "Expand Sales", exact: true }),
-    ).toHaveAttribute("aria-expanded", "false");
+    await expect(drawer.locator(".nav-toggle, .nav-child")).toHaveCount(0);
   }
   await page
     .getByRole("button", { name: "Close navigation", exact: true })

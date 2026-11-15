@@ -46,8 +46,7 @@ type SaleLine = {
   typeName: string;
   quantity: number;
   unitPrice: string;
-  batteryUnitIds?: string[];
-  identities: string[];
+  model: string;
 };
 const validPrice = (value: string) => /^\d{1,14}(?:\.\d{1,2})?$/.test(value);
 
@@ -90,8 +89,6 @@ export function SalesView({
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
-  const [unitIds, setUnitIds] = useState<string[]>([]);
-  const [unitsOpen, setUnitsOpen] = useState(false);
   const [cart, setCart] = useState<SaleLine[]>([]);
   const canPay =
     preview ||
@@ -119,7 +116,6 @@ export function SalesView({
   const products =
     options.data?.products.filter((item) => item.type.id === typeId) ?? [];
   const product = products.find((item) => item.id === productId);
-  const battery = product?.type.trackingKind === "BATTERY_UNIT";
   const count = /^\d+$/.test(quantity) ? Number(quantity) : 0;
   const validQuantity =
     Number.isSafeInteger(count) && count >= 1 && count <= 10000;
@@ -144,7 +140,6 @@ export function SalesView({
     setProductId("");
     setQuantity("1");
     setUnitPrice("");
-    setUnitIds([]);
   }
   function addLine() {
     setError("");
@@ -160,10 +155,6 @@ export function SalesView({
       setError("পণ্যটি cart-এ আছে। পরিবর্তনের জন্য আগের লাইন সরিয়ে আবার যোগ করুন।");
       return;
     }
-    if (battery && unitIds.length !== count) {
-      setError(`এই বিক্রয়ের জন্য ${count}টি battery unit বাছাই করুন।`);
-      return;
-    }
     setCart((lines) => [
       ...lines,
       {
@@ -172,14 +163,7 @@ export function SalesView({
         typeName: product.type.name,
         quantity: count,
         unitPrice: decimalAmount(cents(unitPrice)),
-        ...(battery ? { batteryUnitIds: unitIds } : {}),
-        identities: battery
-          ? product.units
-              .filter((unit) => unitIds.includes(unit.id))
-              .map(
-                (unit) => unit.serialNumber || unit.productionDate || unit.id,
-              )
-          : [],
+        model: product.model,
       },
     ]);
     resetEntry();
@@ -206,11 +190,10 @@ export function SalesView({
       customerId,
       saleDate,
       notes,
-      items: cart.map(({ productId, quantity, unitPrice, batteryUnitIds }) => ({
+      items: cart.map(({ productId, quantity, unitPrice }) => ({
         productId,
         quantity,
         unitPrice,
-        ...(batteryUnitIds ? { batteryUnitIds } : {}),
       })),
       paidAmount: decimalAmount(cents(paid)),
       ...(cents(paid) > BigInt(0) ? { paymentAccountId: account } : {}),
@@ -484,7 +467,7 @@ export function SalesView({
                             setProductId(event.target.value);
                             setQuantity("1");
                             setUnitPrice(selected?.defaultSellingPrice ?? "");
-                            setUnitIds([]);
+
                             setError("");
                           }}
                         >
@@ -513,7 +496,6 @@ export function SalesView({
                           value={quantity}
                           onChange={(event) => {
                             setQuantity(event.target.value);
-                            setUnitIds([]);
                           }}
                         />
                       </Field>
@@ -554,20 +536,6 @@ export function SalesView({
                         ? `বিক্রয়যোগ্য স্টক: ${product.availableQuantity} ${product.unit}`
                         : "ক্যাটাগরি ও পণ্য বাছাই করে quantity এবং unit price দিন।"}
                     </p>
-                    <div className="sales-unit-area">
-                      {battery ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setUnitsOpen(true)}
-                          aria-label="Select Battery Units"
-                        >
-                          Battery Units · নির্বাচিত {unitIds.length} /{" "}
-                          {validQuantity ? count : 0}
-                        </Button>
-                      ) : null}
-                    </div>
                   </div>
                 </Panel>
                 <Panel
@@ -603,7 +571,7 @@ export function SalesView({
                           <tr>
                             {[
                               "Product",
-                              "Serial / Identification",
+                              "Model",
                               "Qty",
                               "Unit Price (৳)",
                               "Total (৳)",
@@ -622,7 +590,7 @@ export function SalesView({
                                   {line.typeName}
                                 </small>
                               </td>
-                              <td>{line.identities.join(", ") || "—"}</td>
+                              <td>{line.model || "-"}</td>
                               <td>{line.quantity}</td>
                               <td>{money(line.unitPrice)}</td>
                               <td>
@@ -814,68 +782,6 @@ export function SalesView({
             </div>
             <Dialog.Close
               aria-label="Close customer dialog"
-              className="absolute top-4 right-4"
-            >
-              <X size={18} />
-            </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root open={unitsOpen} onOpenChange={setUnitsOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
-          <Dialog.Content className="feature-dialog sales-units-dialog">
-            <Dialog.Title className="text-xl font-bold">
-              Select Battery Units
-            </Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-slate-500">
-              {product?.name} · নির্বাচিত {unitIds.length} /{" "}
-              {validQuantity ? count : 0}
-            </Dialog.Description>
-            <fieldset
-              className="sales-unit-picker"
-              aria-label="Sale battery units"
-            >
-              <legend className="sr-only">Available battery units</legend>
-              {product?.units.length ? (
-                <div>
-                  {product.units.map((unit) => (
-                    <label key={unit.id}>
-                      <input
-                        type="checkbox"
-                        value={unit.id}
-                        checked={unitIds.includes(unit.id)}
-                        disabled={
-                          !unitIds.includes(unit.id) && unitIds.length >= count
-                        }
-                        onChange={(event) =>
-                          setUnitIds((selected) =>
-                            event.target.checked
-                              ? [...selected, unit.id]
-                              : selected.filter((id) => id !== unit.id),
-                          )
-                        }
-                      />
-                      <span>
-                        {unit.serialNumber || unit.productionDate || unit.id}
-                        {unit.serialNumber && unit.productionDate
-                          ? " · " + unit.productionDate
-                          : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <p>বিক্রয়যোগ্য battery unit নেই।</p>
-              )}
-            </fieldset>
-            <div className="mt-4 flex justify-end">
-              <Dialog.Close asChild>
-                <Button type="button">Done</Button>
-              </Dialog.Close>
-            </div>
-            <Dialog.Close
-              aria-label="Close battery unit selection"
               className="absolute top-4 right-4"
             >
               <X size={18} />

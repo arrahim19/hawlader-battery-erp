@@ -28,23 +28,19 @@ import {
   type PurchaseOptions,
   type PurchaseList,
   type ReceivedPurchase,
-  type CatalogMetadata,
   type CatalogProduct,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { todayInDhaka } from "@/lib/use-dashboard";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
-import { ProductForm } from "./catalog-forms";
 
-type Identity = { serialNumber?: string; productionDate?: string };
 type CartItem = {
   productId: string;
   name: string;
   typeName: string;
+  model: string;
   quantity: number;
   unitPrice: string;
-  identities?: Identity[];
 };
 
 export function PurchasesView({
@@ -60,11 +56,7 @@ export function PurchasesView({
 }) {
   const user = useSession();
   const [revision, setRevision] = useState(0);
-  const [newProductOpen, setNewProductOpen] = useState(false);
-  const [newProductTypeId, setNewProductTypeId] = useState("");
-  const [identityOpen, setIdentityOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [identityPage, setIdentityPage] = useState(0);
   const [cartPage, setCartPage] = useState(0);
   const [cartPageSize, setCartPageSize] = useState(3);
   const [mobileSection, setMobileSection] = useState(0);
@@ -78,19 +70,19 @@ export function PurchasesView({
     !preview && !loading && view === "list" ? `/purchases?page=${page}` : null,
     revision,
   );
-  const catalog = useCatalogResource<CatalogMetadata>(
-    !preview && newProductOpen ? "/catalog" : null,
-    revision,
-  );
   const [supplierId, setSupplierId] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(todayInDhaka);
+  const [purchaseDate, setPurchaseDate] = useState("");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [productTypeId, setProductTypeId] = useState("");
-  const [productId, setProductId] = useState("");
+  const [productName, setProductName] = useState("");
+  const [model, setModel] = useState("");
+  const [warrantyMonths, setWarrantyMonths] = useState("");
+  const [capacityAh, setCapacityAh] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [createdProducts, setCreatedProducts] = useState<CatalogProduct[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState("");
-  const [identities, setIdentities] = useState<Identity[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentType, setPaymentType] = useState("due");
   const [partialPaid, setPartialPaid] = useState("");
@@ -100,11 +92,43 @@ export function PurchasesView({
   const [received, setReceived] = useState<ReceivedPurchase | null>(null);
   const requestKey = useRef<string | null>(null);
   const types = options.data?.types ?? [];
-  const filteredProducts =
-    options.data?.products.filter((item) => item.type.id === productTypeId) ??
-    [];
-  const product = filteredProducts.find((item) => item.id === productId);
-  const individual = product?.type.trackingKind === "BATTERY_UNIT";
+  const filteredProducts = [
+    ...(options.data?.products ?? []),
+    ...createdProducts,
+  ].filter(
+    (item, index, items) =>
+      item.type.id === productTypeId &&
+      items.findIndex((candidate) => candidate.id === item.id) === index,
+  );
+  const product = filteredProducts.find(
+    (item) =>
+      item.name === productName &&
+      item.model.toLowerCase() === model.trim().toLowerCase(),
+  );
+  const filteredSuppliers = (options.data?.suppliers ?? []).filter(
+    (supplier) => supplier.productTypeId === productTypeId,
+  );
+  const selectedSupplierId = filteredSuppliers.some(
+    (supplier) => supplier.id === supplierId,
+  )
+    ? supplierId
+    : "";
+  const productNames = (options.data?.productNames ?? []).filter(
+    (item) => item.typeId === productTypeId,
+  );
+  const productChoices = [
+    ...filteredProducts.map((item) => ({ value: item.id, name: item.name })),
+    ...productNames.map((item) => ({
+      value: `name:${item.id}`,
+      name: item.name,
+    })),
+  ].filter(
+    (item, index, items) =>
+      items.findIndex((candidate) => candidate.name === item.name) === index,
+  );
+  const hasProductOptions = productChoices.length > 0;
+  const selectedType = types.find((item) => item.id === productTypeId);
+  const individual = selectedType?.trackingKind === "BATTERY_UNIT";
   const totalCents = cart.reduce(
     (sum, item) => sum + cents(item.unitPrice) * BigInt(item.quantity),
     BigInt(0),
@@ -143,97 +167,94 @@ export function PurchasesView({
     observer.observe(panel);
     return () => observer.disconnect();
   }, [current]);
-  const unitIndex = Math.max(0, Math.min(identityPage, quantity - 1));
-  const identityComplete = (unit: Identity) =>
-    (product?.identificationMethod === "PRODUCTION_DATE" ||
-      Boolean(unit.serialNumber?.trim())) &&
-    (product?.identificationMethod === "SERIAL" ||
-      Boolean(unit.productionDate));
-  const identityCount = identities
-    .slice(0, quantity)
-    .filter(identityComplete).length;
-  function productSaved(created: CatalogProduct) {
-    setProductTypeId(created.type.id);
-    setProductId(created.id);
-    setIdentities([]);
-    setIdentityPage(0);
-    setNewProductOpen(false);
-    setRevision((value) => value + 1);
-    setError("");
+  function selectProductName(name: string) {
+    setProductName(name);
+    setModel("");
+    setWarrantyMonths("");
+    setCapacityAh("");
   }
-  function addItem() {
+  async function addItem() {
+    if (adding || preview) return;
     setError("");
     if (
-      !product ||
+      !selectedType ||
+      !productName ||
       !Number.isInteger(quantity) ||
       quantity < 1 ||
-      quantity > 10000 ||
+      quantity > (individual ? 500 : 10000) ||
       !/^\d{1,14}(?:\.\d{1,2})?$/.test(unitPrice)
     ) {
-      setError("পণ্য, সঠিক quantity ও purchase price দিন।");
-      return;
-    }
-    if (cart.some((item) => item.productId === product.id)) {
       setError(
-        "একই পণ্য আগে তালিকায় আছে। পুরোনো লাইন সরিয়ে সঠিক মোট quantity দিয়ে যোগ করুন।",
+        "Select a product and enter a valid quantity and purchase price.",
       );
       return;
     }
-    if (individual && quantity > 500) {
-      setError("একবারে সর্বোচ্চ ৫০০ ব্যাটারি গ্রহণ করুন।");
+    if (
+      (individual &&
+        (!model.trim() ||
+          !/^\d{1,8}(?:\.\d{1,2})?$/.test(capacityAh) ||
+          Number(capacityAh) <= 0)) ||
+      !/^\d+$/.test(warrantyMonths || "0") ||
+      Number(warrantyMonths) > 600
+    ) {
+      setError(
+        "Enter the warranty (0-600 months), and required battery model and capacity.",
+      );
       return;
     }
-    const units = Array.from(
-      { length: quantity },
-      (_, index) => identities[index] ?? {},
-    );
-    if (individual && units.some((unit) => !identityComplete(unit))) {
-      setError("প্রতিটি ব্যাটারির প্রয়োজনীয় পরিচয় দিন।");
-      setIdentityPage(units.findIndex((unit) => !identityComplete(unit)));
-      setIdentityOpen(true);
-      return;
+    setAdding(true);
+    try {
+      let selected = product;
+      if (!selected) {
+        if (!canDefineProduct)
+          throw new Error(
+            "You do not have permission to add a new product model.",
+          );
+        const created = await post<CatalogProduct>("/products", {
+          typeId: productTypeId,
+          name: productName,
+          category: productName,
+          model: model.trim(),
+          unit: "pcs",
+          warrantyMonths: Number(warrantyMonths),
+          ...(individual ? { capacityAh } : {}),
+        });
+        setCreatedProducts((items) => [...items, created]);
+        selected = created;
+      }
+      if (cart.some((item) => item.productId === selected.id))
+        throw new Error(
+          "This product model is already in the purchase list. Remove its line to change the quantity.",
+        );
+      setCartPage(Math.floor(cart.length / cartPageSize));
+      setCart((items) => [
+        ...items,
+        {
+          productId: selected.id,
+          name: selected.name,
+          model: selected.model,
+          typeName: selected.type.name,
+          quantity,
+          unitPrice,
+        },
+      ]);
+      selectProductName("");
+      setQuantity(1);
+      setUnitPrice("");
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not add this product.",
+      );
+    } finally {
+      setAdding(false);
     }
-    setCartPage(Math.floor(cart.length / cartPageSize));
-    setCart([
-      ...cart,
-      {
-        productId: product.id,
-        name: product.name,
-        typeName: product.type.name,
-        quantity,
-        unitPrice,
-        ...(individual
-          ? {
-              identities: units.map((unit) => ({
-                ...(unit.serialNumber?.trim()
-                  ? { serialNumber: unit.serialNumber.trim() }
-                  : {}),
-                ...(unit.productionDate
-                  ? { productionDate: unit.productionDate }
-                  : {}),
-              })),
-            }
-          : {}),
-      },
-    ]);
-    setProductId("");
-    setQuantity(1);
-    setUnitPrice("");
-    setIdentities([]);
-  }
-  function identity(index: number, field: keyof Identity, value: string) {
-    setIdentities((previous) => {
-      const result = [...previous];
-      result[index] = { ...result[index], [field]: value };
-      return result;
-    });
   }
   async function receive(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (preview || saving) return;
     setError("");
     setReceived(null);
-    if (!supplierId || !cart.length) {
+    if (!selectedSupplierId || !cart.length) {
       setError("সাপ্লায়ার নির্বাচন করুন এবং তালিকায় অন্তত একটি পণ্য যোগ করুন।");
       return;
     }
@@ -250,15 +271,14 @@ export function PurchasesView({
       const result = await post<ReceivedPurchase>(
         "/purchases/receive",
         {
-          supplierId,
+          supplierId: selectedSupplierId,
           purchaseDate,
           reference,
           notes,
-          items: cart.map(({ productId, quantity, unitPrice, identities }) => ({
+          items: cart.map(({ productId, quantity, unitPrice }) => ({
             productId,
             quantity,
             unitPrice,
-            ...(identities ? { identities } : {}),
           })),
           paidAmount: paid,
           ...(cents(paid) > BigInt(0)
@@ -440,7 +460,7 @@ export function PurchasesView({
           </div>
         </Panel>
       ) : (
-        <form onSubmit={receive}>
+        <form onSubmit={receive} autoComplete="off">
           <nav className="purchase-mobile-tabs" aria-label="Purchase sections">
             {["Details", `Items (${cart.length})`, "Payment"].map(
               (label, index) => (
@@ -468,7 +488,7 @@ export function PurchasesView({
             )}
           </nav>
           <fieldset
-            disabled={saving || loading || options.loading}
+            disabled={saving || adding || loading || options.loading}
             className="purchase-fieldset"
           >
             <legend className="sr-only">Purchase receiving</legend>
@@ -495,7 +515,9 @@ export function PurchasesView({
                   title="New Purchase"
                   className="purchase-details"
                   action={
-                    !loading && options.data?.suppliers.length === 0 ? (
+                    !loading &&
+                    productTypeId &&
+                    filteredSuppliers.length === 0 ? (
                       <Link
                         className="text-xs text-amber-700 underline"
                         href="/suppliers/new"
@@ -506,76 +528,25 @@ export function PurchasesView({
                   }
                 >
                   <div className="erp-form-body">
-                    <div className="purchase-basics grid gap-4 md:grid-cols-3">
-                      <Field label="Supplier" required>
-                        <select
-                          aria-label="Purchase supplier"
-                          value={supplierId}
-                          onChange={(event) =>
-                            setSupplierId(event.target.value)
-                          }
-                          required
-                        >
-                          <option value="">সাপ্লায়ার নির্বাচন করুন</option>
-                          {options.data?.suppliers.map((supplier) => (
-                            <option key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                              {supplier.company ? " · " + supplier.company : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Purchase Date" required>
-                        <input
-                          type="date"
-                          value={purchaseDate}
-                          onChange={(event) =>
-                            setPurchaseDate(event.target.value)
-                          }
-                          required
-                        />
-                      </Field>
-                      <Field label="Invoice / Challan No.">
-                        <input
-                          value={reference}
-                          onChange={(event) => setReference(event.target.value)}
-                          maxLength={160}
-                        />
-                      </Field>
-                    </div>
                     <div className="purchase-product-heading mt-5 mb-3 flex items-center justify-between gap-3">
                       <h3 className="erp-section-title mb-0!">Add Products</h3>
-                      {canDefineProduct ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setNewProductTypeId(productTypeId);
-                            setNewProductOpen(true);
-                          }}
-                        >
-                          <Plus />
-                          New Product
-                        </Button>
-                      ) : null}
                     </div>
                     <div className="erp-add-products">
                       <Field
-                        label="Product Type"
+                        label="Product Category"
                         className="purchase-type-field"
                       >
                         <select
                           aria-label="Purchase product type"
                           value={productTypeId}
-                          disabled={!types.length}
+                          disabled={!types.length || cart.length > 0}
                           onChange={(event) => {
                             setProductTypeId(event.target.value);
-                            setProductId("");
+                            setSupplierId("");
+                            selectProductName("");
                             setQuantity(1);
                             setUnitPrice("");
-                            setIdentities([]);
-                            setIdentityPage(0);
+
                             setError("");
                           }}
                         >
@@ -587,31 +558,69 @@ export function PurchasesView({
                           ))}
                         </select>
                       </Field>
+                      <Field
+                        label="Supplier"
+                        required
+                        className="purchase-supplier-field"
+                      >
+                        <select
+                          aria-label="Purchase supplier"
+                          value={selectedSupplierId}
+                          onChange={(event) =>
+                            setSupplierId(event.target.value)
+                          }
+                          required
+                        >
+                          <option value="">
+                            {!productTypeId
+                              ? "আগে Product Category নির্বাচন করুন"
+                              : filteredSuppliers.length
+                                ? "সাপ্লায়ার নির্বাচন করুন"
+                                : "এই ক্যাটাগরিতে সাপ্লায়ার নেই"}
+                          </option>
+                          {filteredSuppliers.map((supplier) => (
+                            <option key={supplier.id} value={supplier.id}>
+                              {supplier.name}
+                              {supplier.company ? " · " + supplier.company : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
                       <Field label="Product" className="purchase-product-field">
                         <select
                           aria-label="Purchase product"
-                          value={productId}
-                          disabled={!productTypeId || !filteredProducts.length}
-                          onChange={(event) => {
-                            setProductId(event.target.value);
-                            setIdentities([]);
-                            setIdentityPage(0);
-                          }}
+                          value={productName}
+                          disabled={!productTypeId || !hasProductOptions}
+                          onChange={(event) =>
+                            selectProductName(event.target.value)
+                          }
                         >
                           <option value="">
                             {!productTypeId
                               ? "আগে পণ্যের ধরন নির্বাচন করুন"
-                              : !filteredProducts.length
+                              : !hasProductOptions
                                 ? "এই ধরনে কোনো পণ্য নেই"
                                 : "পণ্য নির্বাচন করুন"}
                           </option>
-                          {filteredProducts.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {product.name}
-                              {product.model ? " · " + product.model : ""}
+                          {productChoices.map((item) => (
+                            <option key={item.value} value={item.name}>
+                              {item.name}
                             </option>
                           ))}
                         </select>
+                      </Field>
+                      <Field
+                        label="Model"
+                        required={individual}
+                        className="purchase-model-field"
+                      >
+                        <input
+                          aria-label="Purchase product model"
+                          value={model}
+                          maxLength={160}
+                          disabled={!productName}
+                          onChange={(event) => setModel(event.target.value)}
+                        />
                       </Field>
                       <Field label="Qty" className="purchase-quantity-field">
                         <input
@@ -655,26 +664,73 @@ export function PurchasesView({
                           )}
                         />
                       </Field>
+                    </div>
+                    <div className="purchase-basics purchase-product-fields grid">
+                      <Field label="Warranty (months)">
+                        <input
+                          aria-label="Purchase product warranty"
+                          type="number"
+                          min="0"
+                          max="600"
+                          step="1"
+                          value={warrantyMonths}
+                          disabled={!productName}
+                          onFocus={(event) => {
+                            if (event.currentTarget.value === "0")
+                              event.currentTarget.select();
+                          }}
+                          onChange={(event) =>
+                            setWarrantyMonths(
+                              event.target.value.replace(/^0+(?=\d)/, ""),
+                            )
+                          }
+                        />
+                      </Field>
+
+                      <Field label="Purchase Date" required>
+                        <input
+                          type="date"
+                          value={purchaseDate}
+                          onChange={(event) =>
+                            setPurchaseDate(event.target.value)
+                          }
+                          required
+                        />
+                      </Field>
+                      <Field label="Invoice / Challan No.">
+                        <input
+                          value={reference}
+                          onChange={(event) => setReference(event.target.value)}
+                          maxLength={160}
+                        />
+                      </Field>
+                      <div className="purchase-capacity-field">
+                        {individual ? (
+                          <Field label="Capacity (Ah)" required>
+                            <input
+                              aria-label="Purchase product capacity"
+                              type="number"
+                              min="0.01"
+                              max="99999999.99"
+                              step="0.01"
+                              disabled={!productName}
+                              value={capacityAh}
+                              onChange={(event) =>
+                                setCapacityAh(event.target.value)
+                              }
+                            />
+                          </Field>
+                        ) : null}
+                      </div>
                       <Button
                         type="button"
+                        className="purchase-add-button"
                         onClick={addItem}
-                        disabled={options.loading || !product}
+                        disabled={options.loading || adding || !productName}
                       >
                         <Plus />
-                        Add to List
+                        {adding ? "Adding..." : "Add to List"}
                       </Button>
-                    </div>
-                    <div className="purchase-identities-slot">
-                      {individual && quantity >= 1 && quantity <= 500 ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="purchase-identities"
-                          onClick={() => setIdentityOpen(true)}
-                        >
-                          Battery Identification · {identityCount}/{quantity}
-                        </Button>
-                      ) : null}
                     </div>
                   </div>
                 </Panel>
@@ -712,9 +768,9 @@ export function PurchasesView({
                                 >
                                   {item.name}
                                 </span>
-                                {item.identities?.length ? (
-                                  <small className="mt-1 block text-slate-500">
-                                    {item.identities.length} battery identities
+                                {item.model ? (
+                                  <small className="block text-slate-500">
+                                    {item.model}
                                   </small>
                                 ) : null}
                               </td>
@@ -976,130 +1032,6 @@ export function PurchasesView({
             <Dialog.Close
               aria-label="Close purchase notes"
               className="absolute top-4 right-4"
-            >
-              <X size={19} />
-            </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root open={identityOpen} onOpenChange={setIdentityOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
-          <Dialog.Content className="feature-dialog">
-            <Dialog.Title className="text-xl font-bold">
-              Battery Identification
-            </Dialog.Title>
-            <Dialog.Description className="mt-2 text-xs text-slate-500">
-              {product?.name} · Battery {unitIndex + 1} / {quantity} · Completed{" "}
-              {identityCount}
-            </Dialog.Description>
-            <div className="mt-5 grid gap-4">
-              {product?.identificationMethod !== "PRODUCTION_DATE" ? (
-                <Field label="Serial Number">
-                  <input
-                    aria-label={`Battery ${unitIndex + 1} serial number`}
-                    value={identities[unitIndex]?.serialNumber ?? ""}
-                    maxLength={160}
-                    onChange={(event) =>
-                      identity(unitIndex, "serialNumber", event.target.value)
-                    }
-                  />
-                </Field>
-              ) : null}
-              {product?.identificationMethod !== "SERIAL" ? (
-                <Field label="Production Date">
-                  <input
-                    aria-label={`Battery ${unitIndex + 1} production date`}
-                    type="date"
-                    max={purchaseDate}
-                    value={identities[unitIndex]?.productionDate ?? ""}
-                    onChange={(event) =>
-                      identity(unitIndex, "productionDate", event.target.value)
-                    }
-                  />
-                </Field>
-              ) : null}
-            </div>
-            <div className="mt-5 flex items-center justify-between gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Previous battery"
-                disabled={unitIndex === 0}
-                onClick={() => setIdentityPage(unitIndex - 1)}
-              >
-                <ChevronLeft />
-                Previous
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Next battery"
-                disabled={unitIndex >= quantity - 1}
-                onClick={() => setIdentityPage(unitIndex + 1)}
-              >
-                Next
-                <ChevronRight />
-              </Button>
-              <Dialog.Close asChild>
-                <Button type="button" size="sm">
-                  Done
-                </Button>
-              </Dialog.Close>
-            </div>
-            <Dialog.Close
-              aria-label="Close battery identification"
-              className="absolute top-4 right-4"
-            >
-              <X size={19} />
-            </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root open={newProductOpen} onOpenChange={setNewProductOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
-          <Dialog.Content className="feature-dialog catalog-product-dialog">
-            <Dialog.Title className="text-xl font-bold">
-              New Purchase Product
-            </Dialog.Title>
-            <Dialog.Description className="mt-2 mb-5 text-xs leading-6 text-slate-500">
-              নতুন পণ্যের তথ্য দিন। এরপর quantity ও purchase price দিয়ে ক্রয় কনফার্ম
-              করুন।
-            </Dialog.Description>
-            {catalog.loading ? (
-              <p role="status" className="py-8 text-center text-sm">
-                Loading product categories...
-              </p>
-            ) : catalog.error ? (
-              <div
-                role="alert"
-                className="rounded-lg bg-red-50 p-4 text-sm text-red-700"
-              >
-                {catalog.error}
-                <Button
-                  className="mt-3"
-                  type="button"
-                  variant="outline"
-                  onClick={() => setRevision((value) => value + 1)}
-                >
-                  Retry
-                </Button>
-              </div>
-            ) : (
-              <ProductForm
-                metadata={catalog.data}
-                typeId={newProductTypeId}
-                onTypeChange={setNewProductTypeId}
-                onSaved={productSaved}
-                preview={preview}
-              />
-            )}
-            <Dialog.Close
-              aria-label="Close purchase product dialog"
-              className="absolute top-4 right-4 rounded p-1 text-slate-400"
             >
               <X size={19} />
             </Dialog.Close>

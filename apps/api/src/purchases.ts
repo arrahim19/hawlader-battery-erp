@@ -39,24 +39,10 @@ import { DatabaseService } from "./database.service";
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
-class UnitIdentityDto {
-  @Transform(trim)
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  serialNumber?: string;
-  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) productionDate?: string;
-}
 class ReceiveItemDto {
   @IsUUID() productId!: string;
   @IsInt() @Min(1) @Max(10000) quantity!: number;
   @Matches(/^\d{1,14}(?:\.\d{1,2})?$/) unitPrice!: string;
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(500)
-  @ValidateNested({ each: true })
-  @Type(() => UnitIdentityDto)
-  identities?: UnitIdentityDto[];
 }
 class ReceivePurchaseDto {
   @IsUUID() supplierId!: string;
@@ -93,7 +79,6 @@ function stable(value: unknown): unknown {
     );
   return value;
 }
-const serialKey = (value: string) => value.trim().toUpperCase();
 const maxMoney = new Prisma.Decimal("999999999999999999.99");
 
 @Controller("purchases")
@@ -103,42 +88,69 @@ export class PurchasesController {
 
   @Get("options")
   async options() {
-    const [products, types, suppliers, paymentAccounts] = await Promise.all([
-      this.db.product.findMany({
-        where: { active: true, type: { active: true } },
-        select: {
-          id: true,
-          name: true,
-          model: true,
-          unit: true,
-          type: { select: { id: true, name: true, trackingKind: true } },
-          batteryDetail: { select: { identificationMethod: true } },
-        },
-        orderBy: { name: "asc" },
-      }),
-      this.db.productType.findMany({
-        where: { active: true, code: { in: productCategoryCodes } },
-        select: { id: true, name: true, trackingKind: true },
-        orderBy: { name: "asc" },
-      }),
-      this.db.supplier.findMany({
-        where: { active: true },
-        select: { id: true, name: true, company: true },
-        orderBy: { name: "asc" },
-      }),
-      this.db.account.findMany({
-        where: { active: true, kind: "ASSET", paymentMethod: { not: null } },
-        select: { id: true, name: true, paymentMethod: true },
-        orderBy: { code: "asc" },
-      }),
-    ]);
+    const [products, types, suppliers, paymentAccounts, names] =
+      await Promise.all([
+        this.db.product.findMany({
+          where: { active: true, type: { active: true } },
+          select: {
+            id: true,
+            name: true,
+            model: true,
+            unit: true,
+            batteryDetail: {
+              select: { capacityAh: true, defaultWarrantyMonths: true },
+            },
+            partsDetail: { select: { defaultWarrantyMonths: true } },
+            type: { select: { id: true, name: true, trackingKind: true } },
+          },
+          orderBy: { name: "asc" },
+        }),
+        this.db.productType.findMany({
+          where: { active: true, code: { in: productCategoryCodes } },
+          select: { id: true, name: true, trackingKind: true },
+          orderBy: { name: "asc" },
+        }),
+        this.db.supplier.findMany({
+          where: {
+            active: true,
+            productType: { active: true, code: { in: productCategoryCodes } },
+          },
+          select: { id: true, name: true, company: true, productTypeId: true },
+          orderBy: { name: "asc" },
+        }),
+        this.db.account.findMany({
+          where: { active: true, kind: "ASSET", paymentMethod: { not: null } },
+          select: { id: true, name: true, paymentMethod: true },
+          orderBy: { code: "asc" },
+        }),
+        this.db.category.findMany({
+          where: { active: true },
+          select: {
+            id: true,
+            name: true,
+            types: { select: { typeId: true } },
+          },
+          orderBy: { name: "asc" },
+        }),
+      ]);
     return {
       data: {
-        products: products.map(({ batteryDetail, ...product }) => ({
-          ...product,
-          identificationMethod: batteryDetail?.identificationMethod ?? null,
-        })),
+        products: products.map(
+          ({ batteryDetail, partsDetail, ...product }) => ({
+            ...product,
+            capacityAh: batteryDetail?.capacityAh.toString() ?? null,
+            warrantyMonths:
+              batteryDetail?.defaultWarrantyMonths ??
+              partsDetail?.defaultWarrantyMonths ??
+              0,
+          }),
+        ),
         types,
+        productNames: names.flatMap((name) =>
+          name.types
+            .filter((link) => types.some((type) => type.id === link.typeId))
+            .map(({ typeId }) => ({ id: name.id, name: name.name, typeId })),
+        ),
         suppliers,
         paymentAccounts,
       },
@@ -279,6 +291,13 @@ export class PurchasesController {
           where: { id: { in: body.items.map((item) => item.productId) } },
           include: { type: true, batteryDetail: true },
         });
+        if (
+          !supplier.productTypeId ||
+          products.some((product) => product.typeId !== supplier.productTypeId)
+        )
+          throw new BadRequestException(
+            "Choose a supplier from the same product category as all purchase items.",
+          );
         const inventory = await tx.account.findUnique({
           where: { code: "1300" },
         });
@@ -308,7 +327,6 @@ export class PurchasesController {
             !paymentAccount.paymentMethod)
         )
           throw new BadRequestException("Choose an active payment method.");
-        const identities = new Set<string>();
         let unitCount = 0;
         for (const item of body.items) {
           const product = products.find(
@@ -318,51 +336,12 @@ export class PurchasesController {
             throw new BadRequestException(
               "One of the selected products is inactive or missing.",
             );
-          if (product.type.trackingKind === "QUANTITY") {
-            if (item.identities?.length)
-              throw new BadRequestException(
-                "Quantity-tracked products do not need battery identities.",
-              );
-            continue;
-          }
+          if (product.type.trackingKind === "QUANTITY") continue;
           unitCount += item.quantity;
-          if (unitCount > 500 || item.identities?.length !== item.quantity)
+          if (unitCount > 500)
             throw new BadRequestException(
-              "Provide one identity per battery, with at most 500 batteries per purchase.",
+              "Receive at most 500 batteries per purchase.",
             );
-          const method = product.batteryDetail?.identificationMethod;
-          if (!method)
-            throw new BadRequestException(
-              "Battery identification is not configured.",
-            );
-          for (const unit of item.identities) {
-            if (
-              method !== "PRODUCTION_DATE" &&
-              (!unit.serialNumber || !serialKey(unit.serialNumber))
-            )
-              throw new BadRequestException(
-                "Each battery needs a serial number.",
-              );
-            if (method !== "SERIAL" && !unit.productionDate)
-              throw new BadRequestException(
-                "Each battery needs a production date.",
-              );
-            if (unit.productionDate) {
-              businessRange(unit.productionDate, unit.productionDate);
-              if (unit.productionDate > body.purchaseDate)
-                throw new BadRequestException(
-                  "A production date cannot follow the purchase date.",
-                );
-            }
-            if (unit.serialNumber) {
-              const key = product.id + ":" + serialKey(unit.serialNumber);
-              if (identities.has(key))
-                throw new ConflictException(
-                  "The purchase contains a duplicate battery serial number.",
-                );
-              identities.add(key);
-            }
-          }
         }
         const purchase = await tx.purchase.create({
           data: {
@@ -452,24 +431,19 @@ export class PurchasesController {
               },
             });
           } else {
-            const units = item.identities!.map((unit) => ({
-              id: randomUUID(),
-              internalCode: "BAT-" + randomUUID(),
-              productId: product.id,
-              batchId: batch.id,
-              origin: "PURCHASE" as const,
-              condition: "GOOD" as const,
-              custody: "SHOP" as const,
-              ownership: "SHOP" as const,
-              commercialState: "AVAILABLE" as const,
-              serialNumber: unit.serialNumber || null,
-              normalizedSerial: unit.serialNumber
-                ? serialKey(unit.serialNumber)
-                : null,
-              productionDate: unit.productionDate
-                ? new Date(unit.productionDate)
-                : null,
-            }));
+            const units = Array.from({ length: item.quantity }, () => {
+              return {
+                id: randomUUID(),
+                internalCode: "BAT-" + randomUUID(),
+                productId: product.id,
+                batchId: batch.id,
+                origin: "PURCHASE" as const,
+                condition: "GOOD" as const,
+                custody: "SHOP" as const,
+                ownership: "SHOP" as const,
+                commercialState: "AVAILABLE" as const,
+              };
+            });
             await tx.batteryUnit.createMany({ data: units });
             await tx.stockMovement.createMany({
               data: units.map((unit) => ({
