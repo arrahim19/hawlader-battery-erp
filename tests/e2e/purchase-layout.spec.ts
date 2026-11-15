@@ -6,7 +6,7 @@ import type {
 } from "../../packages/api-client/src";
 
 for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
-  test(`purchase adds ${trackingKind} inline without dialogs or serial numbers`, async ({
+  test(`purchase confirms ${trackingKind} in one step and safely retries without duplicate products`, async ({
     page,
   }) => {
     const type = {
@@ -15,7 +15,9 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       trackingKind,
     };
     const submitted: Record<string, unknown>[] = [];
-    let receipt: { items: object[] } | undefined;
+    let receipt: { items: object[]; paidAmount: string } | undefined;
+    const receiptKeys: string[] = [];
+    let confirmed = false;
     await page.route("**/api/v1/**", async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname.replace("/api/v1", "");
@@ -31,6 +33,7 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
                 "purchases.manage",
                 "inventory.receive",
                 "catalog.write",
+                "finance.write",
               ],
             },
           },
@@ -39,6 +42,44 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
         return route.fulfill({ json: { data: { token: "csrf" } } });
       if (path.startsWith("/modules/"))
         return route.fulfill({ json: { data: { status: "FOUNDATION_ONLY" } } });
+      if (path === "/purchases/recent")
+        return route.fulfill({
+          json: {
+            data: {
+              items: confirmed
+                ? [
+                    {
+                      id: "purchase",
+                      number: "PUR-TEST",
+                      purchaseDate: "2026-11-15",
+                      supplierReference: "CH-100",
+                      supplier: {
+                        name: "Supplier",
+                        company: "Battery Company",
+                      },
+                      items: [
+                        {
+                          id: "purchase-item",
+                          name: "Fixed Product Name",
+                          typeName: type.name,
+                          model:
+                            trackingKind === "BATTERY_UNIT" ? "6-EV-200A" : "",
+                          capacityAh:
+                            trackingKind === "BATTERY_UNIT" ? "200" : null,
+                          voltage: null,
+                          specifications: null,
+                          warrantyMonths: 6,
+                          quantity: "15",
+                          unitPrice: "10000.00",
+                          total: "150000.00",
+                        },
+                      ],
+                    },
+                  ]
+                : [],
+            },
+          },
+        });
       if (path === "/purchases/options")
         return route.fulfill({
           json: {
@@ -56,7 +97,9 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
                   productTypeId: type.id,
                 },
               ],
-              paymentAccounts: [],
+              paymentAccounts: [
+                { id: "cash", name: "Cash", paymentMethod: "CASH" },
+              ],
             },
           },
         });
@@ -69,7 +112,25 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       }
       if (path === "/purchases/receive") {
         receipt = request.postDataJSON();
-        return route.abort();
+        receiptKeys.push(request.headers()["idempotency-key"]);
+        // Model a lost response: retry must reuse the same purchase key.
+        if (trackingKind === "BATTERY_UNIT" && receiptKeys.length === 1)
+          return route.abort();
+        confirmed = true;
+        return route.fulfill({
+          json: {
+            data: {
+              id: "purchase",
+              number: "PUR-TEST",
+              receiptId: "receipt",
+              status: "RECEIVED",
+              total: "150000.00",
+              quantity: 15,
+              paid: receipt!.paidAmount,
+              due: (150000 - Number(receipt!.paidAmount)).toFixed(2),
+            },
+          },
+        });
       }
       return route.abort();
     });
@@ -85,21 +146,69 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       page.getByRole("button", { name: "New Product", exact: true }),
     ).toHaveCount(0);
     await page.getByLabel("Purchase supplier").selectOption("supplier");
+    await expect(page.getByLabel("Payment Type", { exact: true })).toHaveValue(
+      "full",
+    );
     if (trackingKind === "BATTERY_UNIT") {
-      await page.getByLabel("Purchase product model").fill("6-EV-200A");
-      await page.getByLabel("Purchase product capacity").fill("200");
+      await page.getByLabel("Purchase product model number").fill("6-EV-200A");
     } else
       await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
     await expect(page.getByLabel("Purchase product unit")).toHaveCount(0);
     const warranty = page.getByLabel("Purchase product warranty");
     await warranty.fill("06");
     await expect(warranty).toHaveValue("6");
+    await expect(page.getByLabel("Purchase quantity")).toHaveValue("");
+    await expect(page.getByLabel("Purchase quantity")).toHaveAttribute(
+      "placeholder",
+      "0",
+    );
     await page.getByLabel("Purchase quantity").fill("15");
     await page.getByLabel("Unit purchase price").fill("10000");
+    await page.locator('input[type="date"]').fill("2026-11-15");
     await page
-      .getByRole("button", { name: "Add to List", exact: true })
+      .getByText("Invoice / Challan No.", { exact: true })
+      .locator("..")
+      .locator("input")
+      .fill("CH-100");
+    await expect(
+      page.getByRole("button", {
+        name: /Save Purchase|Receive & Confirm|Add to List/,
+      }),
+    ).toHaveCount(0);
+    if (trackingKind === "QUANTITY") {
+      if (test.info().project.name === "mobile")
+        await page
+          .getByRole("button", { name: "Payment", exact: true })
+          .click();
+      await page
+        .getByLabel("Payment Type", { exact: true })
+        .selectOption("partial");
+      await page
+        .getByLabel("Purchase paid amount", { exact: true })
+        .fill("60000.00");
+      await expect(
+        page.getByLabel("Purchase due amount", { exact: true }),
+      ).toHaveValue("90000.00");
+      await page
+        .getByLabel("Purchase paid amount", { exact: true })
+        .fill("50000.00");
+      await expect(
+        page.getByLabel("Purchase due amount", { exact: true }),
+      ).toHaveValue("100000.00");
+      await expect(
+        page.getByLabel("Purchase due amount", { exact: true }),
+      ).toHaveAttribute("readonly", "");
+      if (test.info().project.name === "mobile")
+        await page
+          .getByRole("button", { name: "Details", exact: true })
+          .click();
+    }
+    await page
+      .getByRole("button", { name: "Confirm Purchase", exact: true })
       .click();
-    await expect(page.locator(".purchase-items tbody tr")).toHaveCount(1);
+    await expect(page.locator(".purchase-items tbody tr")).toHaveCount(
+      trackingKind === "BATTERY_UNIT" ? 0 : 1,
+    );
     expect(submitted).toHaveLength(1);
     expect(submitted[0]).toMatchObject({
       name: "Fixed Product Name",
@@ -109,11 +218,49 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       model: trackingKind === "BATTERY_UNIT" ? "6-EV-200A" : "",
     });
     expect(submitted[0]).not.toHaveProperty("identificationMethod");
+    expect(submitted[0]).not.toHaveProperty("capacityAh");
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await page.locator('input[type="date"]').fill("2026-11-15");
-    await page.getByRole("button", { name: /Receive.*Confirm/ }).click();
+    if (trackingKind === "BATTERY_UNIT") {
+      await expect(
+        page.locator(".purchase-notices [role=alert]"),
+      ).toBeVisible();
+      await page.reload();
+      await expect(page.locator(".purchase-items tbody tr")).toHaveCount(0);
+      await page
+        .getByRole("button", { name: "Confirm Purchase", exact: true })
+        .click();
+      await expect.poll(() => receiptKeys.length).toBe(2);
+      expect(receiptKeys[1]).toBe(receiptKeys[0]);
+    }
+    await expect(page.locator(".purchase-notices [role=status]")).toContainText(
+      "Successful",
+    );
+    await expect(page.locator(".purchase-items tbody tr")).toContainText(
+      "Battery Company",
+    );
+    await expect(page.locator(".purchase-items tbody tr")).toContainText(
+      "CH-100",
+    );
+    await expect(page.locator(".purchase-items tbody tr")).toContainText(
+      "Fixed Product Name",
+    );
+    await expect(
+      page.locator(".purchase-items").getByRole("button", { name: /Remove/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Confirm Purchase", exact: true }),
+    ).toBeDisabled();
+    expect(submitted).toHaveLength(1);
+    expect(receipt?.paidAmount).toBe(
+      trackingKind === "BATTERY_UNIT" ? "150000.00" : "50000.00",
+    );
     await expect.poll(() => receipt?.items.length).toBe(1);
     expect(receipt?.items[0]).not.toHaveProperty("identities");
+    await page.reload();
+    await expect(page.locator(".purchase-items tbody tr")).toHaveCount(1);
+    await expect(page.locator(".purchase-items tbody tr")).toContainText(
+      "CH-100",
+    );
   });
 }
 
@@ -172,6 +319,8 @@ test("purchase navigation and delayed list responses keep the layout stable", as
           data: { suppliers: [], types: [], products: [], paymentAccounts: [] },
         },
       });
+    if (path === "/purchases/recent")
+      return route.fulfill({ json: { data: { items: [] } } });
     if (path === "/purchases") {
       const requestedPage = Number(
         new URL(request.url()).searchParams.get("page"),
@@ -404,6 +553,8 @@ test("new purchase form keeps its geometry while options load and retry", async 
       writes.push(path);
       return route.abort();
     }
+    if (path === "/auth/csrf")
+      return route.fulfill({ json: { data: { token: "csrf" } } });
     if (path === "/auth/me") return route.fulfill({ json: { data: user } });
     if (path === "/modules/purchases") {
       if (blockModule)
@@ -429,6 +580,8 @@ test("new purchase form keeps its geometry while options load and retry", async 
             },
           });
     }
+    if (path === "/purchases/recent")
+      return route.fulfill({ json: { data: { items: [] } } });
     if (path === "/purchases")
       return route.fulfill({
         json: { data: { items: [], total: 0, page: 1, pageSize: 20 } },
@@ -491,8 +644,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
         ".purchase-page .erp-form-side > .erp-panel",
         ".purchase-page .erp-summary-title",
         ".purchase-page .erp-summary-total",
-        ".purchase-page .erp-form-actions",
-        ".purchase-page .erp-form-actions > button",
+        ".purchase-page .purchase-add-button",
         ".page-footer",
       ].flatMap((selector) =>
         Array.from(document.querySelectorAll(selector), (node) => {
@@ -542,18 +694,28 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await expect(productSelect.locator("option")).toHaveCount(3);
   await productSelect.selectOption("Inventory Battery Name");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByLabel("Purchase product capacity")).toBeVisible();
+  await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
   await productSelect.selectOption("Example Battery");
-  await expect(page.getByLabel("Purchase product model")).toHaveValue("");
-  const modelSelect = page.getByLabel("Purchase product model", {
+  await expect(page.getByLabel("Purchase product model number")).toHaveValue(
+    "",
+  );
+  const modelSelect = page.getByLabel("Purchase product model number", {
     exact: true,
   });
   await modelSelect.fill("12V 200Ah");
   await expect(productSelect).toHaveValue("Example Battery");
   await modelSelect.fill("12V 100Ah");
   await expect(page.getByLabel("Purchase product warranty")).toHaveValue("");
-  await expect(page.getByLabel("Purchase product capacity")).toHaveValue("");
-  await expect(page.locator('input[type="date"]')).toHaveValue("");
+  await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
+  const today = await page.evaluate(() =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Dhaka",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date()),
+  );
+  await expect(page.locator('input[type="date"]')).toHaveValue(today);
   await quantity.fill("2");
   await unitPrice.fill("1500.00");
   await expect(
@@ -566,7 +728,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
     productSelect.locator('option[value="Inventory Battery Name"]'),
   ).toHaveCount(0);
   await expect(productSelect).toHaveValue("");
-  await expect(quantity).toHaveValue("1");
+  await expect(quantity).toHaveValue("");
   await expect(unitPrice).toHaveValue("");
   await expect(productSelect.locator("option")).toHaveCount(2);
   await expect(
@@ -588,7 +750,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
     "এই ধরনে কোনো পণ্য নেই",
   );
   await expect(
-    page.getByRole("button", { name: "Add to List", exact: true }),
+    page.getByRole("button", { name: "Confirm Purchase", exact: true }),
   ).toBeDisabled();
   expect(await formGeometry()).toEqual(reserved);
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -619,26 +781,30 @@ test("new purchase form keeps its geometry while options load and retry", async 
   };
   await productType.selectOption("battery-type");
   await productSelect.selectOption("Example Battery");
-  await page.getByLabel("Purchase product model").fill("12V 100Ah");
-  await expect(quantity).toHaveValue("1");
+  await page.getByLabel("Purchase product model number").fill("12V 100Ah");
+  await expect(quantity).toHaveValue("");
   await expect(unitPrice).toHaveValue("");
+  await quantity.fill("1");
   await unitPrice.fill("1500.00");
-  await page.getByLabel("Purchase product capacity").fill("100");
   await expect(
     page.getByLabel("Battery 1 serial number", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Add to List", exact: true }).click();
-  await expect(page.locator(".purchase-items tbody tr")).toHaveCount(1);
+  await page.getByLabel("Purchase supplier").selectOption("supplier-one");
+  await page.locator('input[type="date"]').fill("2026-11-15");
+  await page
+    .getByRole("button", { name: "Confirm Purchase", exact: true })
+    .click();
+  // An unsuccessful request must never appear in the confirmed recent feed.
+  await expect(page.locator(".purchase-items tbody tr")).toHaveCount(0);
   await expect(productType).toHaveValue("battery-type");
   await expect(productSelect).toHaveValue("");
   expect(await formGeometry()).toEqual(reserved);
   await section(1);
   const populated = await formGeometry();
   await page
-    .getByRole("button", { name: "Remove Example Battery", exact: true })
+    .getByRole("button", { name: "Dismiss purchase error", exact: true })
     .click();
-  await expect(page.locator(".purchase-items tbody tr")).toHaveCount(0);
-  // The narrow cart scrolls horizontally to reach Remove; compare the same view.
+  // Compare the recent table at the same horizontal scroll position.
   await page.locator(".purchase-items .erp-table-wrap").evaluate((node) => {
     node.scrollLeft = 0;
   });
@@ -647,8 +813,15 @@ test("new purchase form keeps its geometry while options load and retry", async 
   const paymentGeometry = await formGeometry();
   for (const type of ["full", "partial", "due"]) {
     await page.getByLabel("Payment Type", { exact: true }).selectOption(type);
-    expect(await formGeometry()).toEqual(paymentGeometry);
+    await expect(
+      page.getByLabel("Purchase paid amount", { exact: true }),
+    ).toHaveCount(type === "partial" ? 1 : 0);
+    await expect(
+      page.getByLabel("Purchase due amount", { exact: true }),
+    ).toHaveCount(type === "partial" ? 1 : 0);
   }
+  await page.getByLabel("Payment Type", { exact: true }).selectOption("full");
+  expect(await formGeometry()).toEqual(paymentGeometry);
   await section(0);
   expect(await formGeometry()).toEqual(reserved);
 
@@ -682,9 +855,10 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await expect.poll(() => Boolean(releaseOptions)).toBe(true);
   expect(await formGeometry()).toEqual(reserved);
   releaseOptions!();
+  // The failed purchase draft is preserved for retry when returning to this page.
   await expect(
     page.getByLabel("Purchase supplier").locator("option"),
-  ).toHaveCount(1);
+  ).toHaveCount(2);
   await expect(page.locator(".purchase-page").getByRole("alert")).toHaveCount(
     0,
   );
@@ -695,6 +869,9 @@ test("new purchase form keeps its geometry while options load and retry", async 
     page.getByText("No records to display", { exact: true }),
   ).toBeVisible();
   emptyOptions = true;
+  // Test the empty catalog independently from the failed purchase draft.
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
   releaseOptions = undefined;
   await tabs.getByRole("link", { name: "New Purchase", exact: true }).click();
   await expect.poll(() => Boolean(releaseOptions)).toBe(true);
@@ -708,7 +885,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
     page.locator('.purchase-details a[href="/suppliers/new"]'),
   ).toBeVisible();
   expect(await formGeometry()).toEqual(reserved);
-  expect(writes).toEqual([]);
+  expect(writes).toEqual(["/purchases/receive"]);
   expect(unhandled).toEqual([]);
   expect(errors).toEqual([]);
 });

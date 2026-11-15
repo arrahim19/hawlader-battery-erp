@@ -243,6 +243,7 @@ export function AppShell({
         "app-shell",
         current === "dashboard" && "dashboard-shell",
         current === "purchases" && "purchase-shell",
+        ["inventory", "products"].includes(current) && "inventory-shell",
         collapsed && "sidebar-collapsed",
       )}
     >

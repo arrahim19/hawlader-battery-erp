@@ -202,54 +202,70 @@ export class DashboardService {
       },
     };
     if (finance) {
-      const [lines, allBalances, receipts, cash, trend] = await Promise.all([
-        this.db.journalLine.findMany({
-          where: {
-            entry: { postedAt: { gte: range.start, lt: range.end } },
-            account: { code: { in: ["4100", "5100"] } },
-          },
-          select: {
-            debit: true,
-            credit: true,
-            account: { select: { code: true } },
-          },
-        }),
-        this.db.journalLine.groupBy({
-          by: ["accountId", "customerId", "supplierId"],
-          where: { account: { code: { in: ["1200", "2100"] } } },
-          _sum: { debit: true, credit: true },
-        }),
-        this.db.purchaseReceiptItem.aggregate({
-          _sum: { netCost: true },
-          where: {
-            receipt: {
-              receivedDate: {
-                gte: new Date(range.from),
-                lte: new Date(range.to),
+      const [lines, allBalances, receipts, cash, trend, stockValue] =
+        await Promise.all([
+          this.db.journalLine.findMany({
+            where: {
+              entry: { postedAt: { gte: range.start, lt: range.end } },
+              account: { code: { in: ["4100", "5100"] } },
+            },
+            select: {
+              debit: true,
+              credit: true,
+              account: { select: { code: true } },
+            },
+          }),
+          this.db.journalLine.groupBy({
+            by: ["accountId", "customerId", "supplierId"],
+            where: { account: { code: { in: ["1200", "2100"] } } },
+            _sum: { debit: true, credit: true },
+          }),
+          this.db.purchaseReceiptItem.aggregate({
+            _sum: { netCost: true },
+            where: {
+              receipt: {
+                receivedDate: {
+                  gte: new Date(range.from),
+                  lte: new Date(range.to),
+                },
               },
             },
-          },
-        }),
-        this.db.payment.aggregate({
-          _sum: { amount: true },
-          where: {
-            direction: "INCOMING",
-            method: "CASH",
-            occurredAt: { gte: range.start, lt: range.end },
-            reversedPaymentId: null,
-            reversal: { is: null },
-          },
-        }),
-        this.db.$queryRaw<
-          { date: string; amount: string; grossProfit: string }[]
-        >`
+          }),
+          this.db.payment.aggregate({
+            _sum: { amount: true },
+            where: {
+              direction: "INCOMING",
+              method: "CASH",
+              occurredAt: { gte: range.start, lt: range.end },
+              reversedPaymentId: null,
+              reversal: { is: null },
+            },
+          }),
+          this.db.$queryRaw<
+            { date: string; amount: string; grossProfit: string }[]
+          >`
           SELECT to_char(e."postedAt" AT TIME ZONE 'Asia/Dhaka','YYYY-MM-DD') AS date,
             SUM(CASE WHEN a.code='4100' THEN l.credit-l.debit ELSE 0 END)::text AS amount,
             SUM(l.credit-l.debit)::text AS "grossProfit"
           FROM "JournalLine" l JOIN "JournalEntry" e ON e.id=l."entryId" JOIN "Account" a ON a.id=l."accountId"
           WHERE a.code IN ('4100','5100') AND e."postedAt">=${range.start} AND e."postedAt"<${range.end}
           GROUP BY 1 ORDER BY 1`,
-      ]);
+          this.db.$queryRaw<{ amount: string }[]>`
+          SELECT COALESCE(SUM(v.amount), 0)::text AS amount FROM (
+            SELECT s."unitCost" AS amount
+            FROM "BatteryUnit" u JOIN "StockBatch" s ON s.id=u."batchId"
+            JOIN "Product" p ON p.id=u."productId"
+            WHERE p.active=true AND u.condition='GOOD' AND u.custody='SHOP'
+              AND u.ownership='SHOP' AND u."commercialState"='AVAILABLE'
+              AND u."reservedCustomerId" IS NULL AND u."reservedReplacementId" IS NULL
+            UNION ALL
+            SELECT b.quantity * s."unitCost" AS amount
+            FROM "InventoryBalance" b JOIN "StockBatch" s ON s.id=b."batchId"
+            JOIN "Product" p ON p.id=s."productId" JOIN "ProductType" t ON t.id=p."typeId"
+            WHERE p.active=true AND t."trackingKind"='QUANTITY'
+              AND b.location='SHOP' AND b.bucket='AVAILABLE' AND b.quantity>0
+          ) v`,
+        ]);
       const accountIds = await this.db.account.findMany({
         where: { code: { in: ["1200", "2100"] } },
         select: { id: true, code: true },
@@ -277,6 +293,9 @@ export class DashboardService {
           );
       }
       result.financials = {
+        availableStockPurchaseValue: new Prisma.Decimal(
+          stockValue[0]?.amount ?? 0,
+        ).toFixed(2),
         todaySales: revenue.toFixed(2),
         todayPurchases: (
           receipts._sum.netCost ?? new Prisma.Decimal(0)

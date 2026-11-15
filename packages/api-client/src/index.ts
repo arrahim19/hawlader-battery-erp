@@ -69,7 +69,6 @@ export interface CatalogMetadata {
 }
 export interface CatalogProduct {
   id: string;
-  sku: string;
   name: string;
   model: string;
   unit: string;
@@ -78,6 +77,7 @@ export interface CatalogProduct {
   brand: { id: string; name: string } | null;
   category: { id: string; name: string } | null;
   defaultSellingPrice: string;
+  latestPurchasePrice?: string | null;
   lowStockThreshold: string;
   warrantyMonths: number;
   capacityAh: string | null;
@@ -102,6 +102,8 @@ export interface PurchaseOptions {
   types: Pick<ProductTypeRecord, "id" | "name" | "trackingKind">[];
   products: (Pick<CatalogProduct, "id" | "name" | "model" | "unit" | "type"> & {
     capacityAh?: string | null;
+    voltage?: string | null;
+    specifications?: string | null;
     warrantyMonths?: number;
   })[];
   suppliers: {
@@ -179,6 +181,28 @@ export interface PurchaseList {
   page: number;
   pageSize: number;
 }
+export interface RecentPurchases {
+  items: {
+    id: string;
+    number: string;
+    purchaseDate: string;
+    supplierReference: string | null;
+    supplier: { name: string; company: string | null };
+    items: {
+      id: string;
+      name: string;
+      typeName: string;
+      model: string;
+      capacityAh: string | null;
+      voltage: string | null;
+      specifications: string | null;
+      warrantyMonths: number;
+      quantity: string;
+      unitPrice: string;
+      total: string;
+    }[];
+  }[];
+}
 export interface DashboardData {
   businessDate: string;
   from: string;
@@ -194,6 +218,7 @@ export interface DashboardData {
     lowStock: number;
   };
   financials?: {
+    availableStockPurchaseValue: string;
     todaySales: string;
     todayPurchases: string;
     todayCashReceived: string;

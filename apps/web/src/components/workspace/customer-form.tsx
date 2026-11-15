@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { LoaderCircle, Plus } from "lucide-react";
 import { Field } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ export function CustomerForm({
   onSaved: (customer: CustomerRecord) => void;
   onCancel?: () => void;
 }) {
-  const id = useId();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -26,13 +25,12 @@ export function CustomerForm({
     const phone = text("phone");
     const address = text("address");
     const vehicleType = text("vehicleType");
-    const vehicleIdentifier = text("vehicleIdentifier");
     if (!name || !/^[+0-9][0-9 ()-]{5,29}$/.test(phone)) {
       setError("Enter the customer's name and a valid mobile number.");
       return;
     }
-    if (vehicleIdentifier && !vehicleType) {
-      setError("Enter the vehicle type for this registration or identifier.");
+    if (!address) {
+      setError("Enter the customer's address.");
       return;
     }
     setError("");
@@ -41,10 +39,8 @@ export function CustomerForm({
       const customer = await post<CustomerRecord>("/customers", {
         name,
         phone,
-        ...(address ? { address } : {}),
-        ...(vehicleType
-          ? { vehicleType, ...(vehicleIdentifier ? { vehicleIdentifier } : {}) }
-          : {}),
+        address,
+        ...(vehicleType ? { vehicleType } : {}),
       });
       onSaved(customer);
     } catch (error) {
@@ -81,38 +77,23 @@ export function CustomerForm({
             maxLength={30}
           />
         </Field>
-        <Field label="Address (Optional)" className="sm:col-span-2">
+        <Field label="Address" required className="sm:col-span-2">
           <textarea
             name="address"
-            aria-label="Customer address (optional)"
+            aria-label="Customer address"
             autoComplete="street-address"
             maxLength={500}
+            required
           />
         </Field>
-        <Field label="Vehicle Type (Optional)">
+        <Field label="Vehicle Type (Optional)" className="sm:col-span-2">
           <input
             name="vehicleType"
             aria-label="Vehicle type (optional)"
             placeholder="Car, motorcycle, easy bike..."
             maxLength={100}
-            aria-describedby={id + "-vehicle-hint"}
           />
         </Field>
-        <Field label="Vehicle / Registration Number (Optional)">
-          <input
-            name="vehicleIdentifier"
-            aria-label="Vehicle identifier (optional)"
-            maxLength={160}
-            aria-describedby={id + "-vehicle-hint"}
-          />
-        </Field>
-        <p
-          id={id + "-vehicle-hint"}
-          className="text-xs text-slate-500 sm:col-span-2"
-        >
-          Vehicle details are optional. Enter a vehicle type when adding a
-          registration or identifier.
-        </p>
       </fieldset>
       {error ? (
         <p

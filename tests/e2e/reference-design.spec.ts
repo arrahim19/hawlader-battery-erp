@@ -84,7 +84,7 @@ test("reference layouts fit desktop and mobile and draft actions do not write re
   ).toBeDisabled();
   await page.goto("/preview?module=sales");
   await expect(
-    page.getByRole("button", { name: "Complete Sale", exact: true }),
+    page.getByRole("button", { name: "Confirm Sale", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "New Customer", exact: true }).click();
   const customerDialog = page.getByRole("dialog", {

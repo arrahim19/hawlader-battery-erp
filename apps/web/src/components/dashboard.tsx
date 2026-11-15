@@ -365,47 +365,55 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
       {loading ? (
         <div
           className="erp-stats"
+          data-finance={Boolean(finance)}
           aria-busy="true"
           aria-label="Loading dashboard"
         >
-          {[1, 2, 3, 4, 5].map((value) => (
+          {Array.from({ length: finance ? 6 : 5 }, (_, value) => (
             <Skeleton className="h-32" key={value} />
           ))}
         </div>
       ) : (
-        <div className="erp-stats">
+        <div className="erp-stats" data-finance={Boolean(finance)}>
           {finance ? (
             <>
               <StatCard
                 label="মোট বিক্রয়"
                 value={taka(data?.financials?.todaySales)}
-                caption="নিশ্চিত বিক্রয় · নির্বাচিত সময়"
+
                 icon={ShoppingCart}
               />
               <StatCard
                 label="মোট লাভ"
                 value={taka(data?.financials?.grossProfit)}
-                caption="বিক্রয় আয় − পণ্যের প্রকৃত ক্রয়মূল্য"
+
                 icon={ChartColumnIncreasing}
               />
               <StatCard
                 label="মোট ক্রয়"
                 value={taka(data?.financials?.todayPurchases)}
-                caption="শুধু গ্রহণ করা স্টক · Draft নয়"
+
                 icon={ShoppingBag}
                 tone="blue"
               />
               <StatCard
+                label="স্টকের ক্রয়মূল্য"
+                value={taka(data?.financials?.availableStockPurchaseValue)}
+
+                icon={Boxes}
+                tone="purple"
+              />
+              <StatCard
                 label="কাস্টমার বাকি"
                 value={taka(data?.financials?.customerDues)}
-                caption="মোট বকেয়া · সব সময়"
+
                 icon={Wallet}
                 tone="orange"
               />
               <StatCard
                 label="কোম্পানির বাকি"
                 value={taka(data?.financials?.supplierDues)}
-                caption="মোট দেনা · সব সময়"
+
                 icon={Truck}
                 tone="purple"
               />

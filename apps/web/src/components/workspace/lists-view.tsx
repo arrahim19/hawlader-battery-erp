@@ -171,7 +171,7 @@ export function InventoryView({
               ? [
                   "#",
                   "পণ্যের নাম",
-                  "Model",
+                  "Model Number",
                   "অবস্থা",
                   "মালিকানা",
                   "স্ট্যাটাস",
@@ -180,7 +180,7 @@ export function InventoryView({
               : current === "movements"
                 ? [
                     "তারিখ",
-                    "Product / Model",
+                    "Product / Model Number",
                     "মুভমেন্ট",
                     "পরিমাণ",
                     "রেফারেন্স",
@@ -200,7 +200,7 @@ export function InventoryView({
                       "পণ্যের নাম (Product)",
                       "ধরন",
                       "ব্র্যান্ড / ক্যাটাগরি",
-                      "মডেল / স্পেসিফিকেশন",
+                      "Model Number",
                       "মোট স্টক",
                       "বিক্রয়যোগ্য",
                       "রিপ্লেসেবল",
@@ -290,10 +290,10 @@ export function ReplacementView({
                   <option>Customer Warranty Claim</option>
                 </select>
               </Field>
-              <Field label="Customer / Invoice / Model">
-                <input placeholder="Search customer, invoice or model..." />
+              <Field label="Customer / Invoice / Model Number">
+                <input placeholder="Search customer, invoice or model number..." />
               </Field>
-              <Field label="Product / Model" required>
+              <Field label="Product / Model Number" required>
                 <select>
                   <option value="">ব্যাটারি নির্বাচন করুন</option>
                 </select>
@@ -339,8 +339,8 @@ export function ReplacementView({
                       ? [
                           "রিসিভ নং",
                           "কোম্পানি",
-                          "Product / Model",
-                          "Product / Model",
+                          "Product / Model Number",
+                          "Product / Model Number",
                           "তারিখ",
                           "স্ট্যাটাস",
                         ]

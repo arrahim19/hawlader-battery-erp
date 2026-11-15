@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   Body,
@@ -106,13 +106,18 @@ const activeWhere = (status: string): Prisma.ProductWhereInput =>
   status === "all" ? {} : { active: status === "active" };
 const productFields = {
   id: true,
-  sku: true,
   name: true,
   model: true,
   unit: true,
   active: true,
   defaultSellingPrice: true,
   lowStockThreshold: true,
+  batches: {
+    where: { origin: "PURCHASE" },
+    orderBy: [{ acquiredAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    take: 1,
+    select: { unitCost: true },
+  },
   type: { select: { id: true, name: true, trackingKind: true } },
   brand: { select: { id: true, name: true } },
   category: { select: { id: true, name: true } },
@@ -129,16 +134,17 @@ const productFields = {
 } satisfies Prisma.ProductSelect;
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof productFields }>;
 function productDto(row: ProductRow) {
-  const { batteryDetail, partsDetail, ...product } = row;
+  const { batteryDetail, partsDetail, batches, ...product } = row;
   return {
     ...product,
     defaultSellingPrice: row.defaultSellingPrice.toFixed(2),
+    latestPurchasePrice: batches[0]?.unitCost.toFixed(2) ?? null,
     lowStockThreshold: row.lowStockThreshold.toString(),
     warrantyMonths:
       batteryDetail?.defaultWarrantyMonths ??
       partsDetail?.defaultWarrantyMonths ??
       0,
-    capacityAh: batteryDetail?.capacityAh.toString() ?? null,
+    capacityAh: batteryDetail?.capacityAh?.toString() ?? null,
     voltage: batteryDetail?.voltage?.toString() ?? null,
     specifications: partsDetail?.specifications ?? null,
     stock: {
@@ -243,7 +249,7 @@ export class CatalogController {
   ) {
     void body;
     throw new ConflictException(
-      "Product categories are fixed: Battery, Parts & Accessories, Easy Bike & Rickshaw.",
+      "Product categories are fixed: Battery, Parts, Easy Bike & Rickshaw.",
     );
   }
 
@@ -259,7 +265,6 @@ export class CatalogController {
             OR: [
               { name: { contains: query.q, mode: "insensitive" } },
               { model: { contains: query.q, mode: "insensitive" } },
-              { sku: { contains: query.q, mode: "insensitive" } },
               { brand: { name: { contains: query.q, mode: "insensitive" } } },
             ],
           }
@@ -476,12 +481,12 @@ export class CatalogController {
         throw new BadRequestException("Model is required for batteries.");
       if (
         individual &&
-        (!body.capacityAh ||
-          new Prisma.Decimal(body.capacityAh).lte(0) ||
+        ((body.capacityAh != null &&
+          new Prisma.Decimal(body.capacityAh).lte(0)) ||
           (body.voltage != null && new Prisma.Decimal(body.voltage).lte(0)))
       )
         throw new BadRequestException(
-          "Positive capacity is required; voltage must be positive when provided.",
+          "Capacity and voltage must be positive when provided.",
         );
       if (!individual && !body.category)
         throw new BadRequestException(
@@ -527,7 +532,9 @@ export class CatalogController {
           normalize(body.model ?? ""),
           brand?.id ?? null,
           category?.id ?? null,
-          individual ? new Prisma.Decimal(body.capacityAh!).toString() : null,
+          individual && body.capacityAh != null
+            ? new Prisma.Decimal(body.capacityAh).toString()
+            : null,
           individual && body.voltage != null
             ? new Prisma.Decimal(body.voltage).toString()
             : null,
@@ -536,7 +543,6 @@ export class CatalogController {
       );
       const created = await tx.product.create({
         data: {
-          sku: "PRD-" + randomUUID(),
           identityKey,
           name: body.name,
           model: body.model ?? "",
@@ -550,7 +556,7 @@ export class CatalogController {
             ? {
                 batteryDetail: {
                   create: {
-                    capacityAh: body.capacityAh!,
+                    capacityAh: body.capacityAh ?? null,
                     voltage: body.voltage ?? null,
                     identificationMethod: "SERIAL",
                     defaultWarrantyMonths: body.warrantyMonths,

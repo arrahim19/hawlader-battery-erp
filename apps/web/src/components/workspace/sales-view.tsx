@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import {
@@ -34,7 +33,7 @@ import {
   type SalesOptions,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { todayInDhaka } from "@/lib/use-dashboard";
+import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
 import { CustomerForm } from "./customer-form";
@@ -87,7 +86,7 @@ export function SalesView({
   const [saleDate, setSaleDate] = useState(todayInDhaka);
   const [typeId, setTypeId] = useState("");
   const [productId, setProductId] = useState("");
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState("0");
   const [unitPrice, setUnitPrice] = useState("");
   const [cart, setCart] = useState<SaleLine[]>([]);
   const canPay =
@@ -97,37 +96,49 @@ export function SalesView({
         ["finance.write", "payments.customer"].includes(permission),
       ),
     );
-  const [saleType, setSaleType] = useState(canPay ? "cash" : "credit");
+  const [saleType, setSaleType] = useState("cash");
   const [partialPaid, setPartialPaid] = useState("");
-  const [paymentAccountId, setPaymentAccountId] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [completed, setCompleted] = useState<CompletedSale | null>(null);
+  const [completed, setCompleted] = useState<
+    (CompletedSale & { items: SaleLine[] }) | null
+  >(null);
+  const displayedItems = completed?.items ?? cart;
   const submission = useRef<{ signature: string; key: string } | null>(null);
+  const submitting = useRef(false);
   const customers = [
     ...new Map(
-      [...(options.data?.customers ?? []), ...createdCustomers].map(
+      [...createdCustomers, ...(options.data?.customers ?? [])].map(
         (customer) => [customer.id, customer],
       ),
     ).values(),
   ];
   const customer = customers.find((item) => item.id === customerId);
+  const customerDue = decimalAmount(cents(customer?.due ?? "0.00"));
   const products =
     options.data?.products.filter((item) => item.type.id === typeId) ?? [];
   const product = products.find((item) => item.id === productId);
   const count = /^\d+$/.test(quantity) ? Number(quantity) : 0;
   const validQuantity =
     Number.isSafeInteger(count) && count >= 1 && count <= 10000;
-  const totalCents = cart.reduce(
-    (sum, line) => sum + cents(line.unitPrice) * BigInt(line.quantity),
-    BigInt(0),
-  );
+  const totalCents = completed
+    ? cents(completed.total)
+    : cart.reduce(
+        (sum, line) => sum + cents(line.unitPrice) * BigInt(line.quantity),
+        product && validQuantity ? cents(unitPrice) * BigInt(count) : BigInt(0),
+      );
   const total = decimalAmount(totalCents);
   const lineTotal = validQuantity
     ? decimalAmount(cents(unitPrice) * BigInt(count))
     : "0.00";
-  const paid = saleType === "cash" ? total : partialPaid || "0.00";
+  const paid =
+    completed?.paid ??
+    (saleType === "cash"
+      ? total
+      : saleType === "partial"
+        ? partialPaid || "0.00"
+        : "0.00");
   const due = decimalAmount(totalCents - cents(paid));
   const busy = loading || options.loading;
   const loadError = options.error || listing.error || moduleError;
@@ -138,7 +149,7 @@ export function SalesView({
 
   function resetEntry() {
     setProductId("");
-    setQuantity("1");
+    setQuantity("0");
     setUnitPrice("");
   }
   function addLine() {
@@ -171,9 +182,35 @@ export function SalesView({
   }
   async function completeSale(event: FormEvent) {
     event.preventDefault();
-    if (preview || saving) return;
+    if (preview || submitting.current || completed) return;
     setError("");
-    if (!customer || !cart.length) {
+    let items = cart;
+    if (productId) {
+      if (!product || !validQuantity || !validPrice(unitPrice)) {
+        setError("পণ্য, সঠিক quantity ও unit price দিন।");
+        return;
+      }
+      if (count > Number(product.availableQuantity)) {
+        setError("বিক্রয়যোগ্য স্টকের চেয়ে বেশি quantity দেওয়া যাবে না।");
+        return;
+      }
+      if (cart.some((line) => line.productId === product.id)) {
+        setError("পণ্যটি Sale Items-এ আছে। পরিবর্তনের জন্য আগের লাইন সরিয়ে দিন।");
+        return;
+      }
+      items = [
+        ...cart,
+        {
+          productId: product.id,
+          name: product.name,
+          typeName: product.type.name,
+          quantity: count,
+          unitPrice: decimalAmount(cents(unitPrice)),
+          model: product.model,
+        },
+      ];
+    }
+    if (!customer || !items.length) {
       setError("একজন customer এবং বিক্রয়ের জন্য অন্তত একটি পণ্য বাছাই করুন।");
       return;
     }
@@ -181,16 +218,18 @@ export function SalesView({
       setError("পরিশোধের পরিমাণ মোট বিক্রয়মূল্যের মধ্যে হতে হবে।");
       return;
     }
-    const account = paymentAccountId || options.data?.paymentAccounts[0]?.id;
+    const account = options.data?.paymentAccounts.find(
+      (item) => item.paymentMethod === "CASH",
+    )?.id;
     if (cents(paid) > BigInt(0) && (!canPay || !account)) {
-      setError("পেমেন্ট গ্রহণের জন্য একটি অনুমোদিত payment method বাছাই করুন।");
+      setError("পেমেন্ট গ্রহণের জন্য সক্রিয় Cash account প্রয়োজন।");
       return;
     }
     const body = {
       customerId,
       saleDate,
       notes,
-      items: cart.map(({ productId, quantity, unitPrice }) => ({
+      items: items.map(({ productId, quantity, unitPrice }) => ({
         productId,
         quantity,
         unitPrice,
@@ -201,18 +240,20 @@ export function SalesView({
     const signature = JSON.stringify(body);
     if (submission.current?.signature !== signature)
       submission.current = { signature, key: crypto.randomUUID() };
+    submitting.current = true;
     setSaving(true);
     try {
       const result = await post<CompletedSale>("/sales/complete", body, {
         "Idempotency-Key": submission.current.key,
       });
-      setCompleted(result);
+      setCompleted({ ...result, items });
       setCart([]);
       resetEntry();
       setPartialPaid("");
       setNotes("");
       submission.current = null;
       setRevision((value) => value + 1);
+      notifyDashboardUpdate();
     } catch (failure) {
       setError(
         failure instanceof Error
@@ -220,6 +261,7 @@ export function SalesView({
           : "বিক্রয় সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।",
       );
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   }
@@ -261,11 +303,7 @@ export function SalesView({
         {completed ? (
           <div role="status" className="sales-success">
             <Check size={18} />
-            <span>
-              বিক্রয় সংরক্ষিত হয়েছে · {completed.invoiceNumber} · মোট{" "}
-              {money(completed.total)} · বকেয়া {money(completed.due)}
-            </span>
-            <Link href="/sales/list">Sales List দেখুন</Link>
+            <span>বিক্রয় সফল হয়েছে</span>
           </div>
         ) : null}
       </div>
@@ -403,13 +441,6 @@ export function SalesView({
                           required
                         />
                       </Field>
-                      <Field label="Invoice No">
-                        <input
-                          readOnly
-                          value={completed?.invoiceNumber ?? ""}
-                          placeholder="বিক্রয় নিশ্চিত করার পর তৈরি হবে"
-                        />
-                      </Field>
                     </div>
                     <p className="sales-customer-contact">
                       {customer
@@ -443,6 +474,7 @@ export function SalesView({
                           disabled={!options.data?.types.length}
                           onChange={(event) => {
                             setTypeId(event.target.value);
+                            setCompleted(null);
                             resetEntry();
                             setError("");
                           }}
@@ -465,8 +497,14 @@ export function SalesView({
                               (item) => item.id === event.target.value,
                             );
                             setProductId(event.target.value);
-                            setQuantity("1");
-                            setUnitPrice(selected?.defaultSellingPrice ?? "");
+                            setCompleted(null);
+                            setQuantity("0");
+                            setUnitPrice(
+                              selected &&
+                                cents(selected.defaultSellingPrice) > BigInt(0)
+                                ? selected.defaultSellingPrice
+                                : "",
+                            );
 
                             setError("");
                           }}
@@ -490,12 +528,21 @@ export function SalesView({
                         <input
                           aria-label="Sales quantity"
                           type="number"
-                          min="1"
+                          min="0"
                           max="10000"
                           step="1"
                           value={quantity}
+                          placeholder="0"
+                          onFocus={() => {
+                            if (quantity === "0") setQuantity("");
+                          }}
+                          onBlur={() => {
+                            if (!quantity) setQuantity("0");
+                          }}
                           onChange={(event) => {
-                            setQuantity(event.target.value);
+                            setQuantity(
+                              event.target.value.replace(/^0+(?=\d)/, ""),
+                            );
                           }}
                         />
                       </Field>
@@ -510,7 +557,15 @@ export function SalesView({
                           step="0.01"
                           placeholder="0.00"
                           value={unitPrice}
-                          onChange={(event) => setUnitPrice(event.target.value)}
+                          onFocus={() => {
+                            if (/^0(?:\.0*)?$/.test(unitPrice))
+                              setUnitPrice("");
+                          }}
+                          onChange={(event) =>
+                            setUnitPrice(
+                              event.target.value.replace(/^0+(?=\d)/, ""),
+                            )
+                          }
                         />
                       </Field>
                       <Field label="Total (৳)" className="sales-total-field">
@@ -521,14 +576,26 @@ export function SalesView({
                         />
                       </Field>
                       <Button
-                        type="button"
-                        onClick={addLine}
+                        type="submit"
                         disabled={
-                          !product || Number(product.availableQuantity) <= 0
+                          preview ||
+                          saving ||
+                          Boolean(completed) ||
+                          busy ||
+                          !customer ||
+                          (!product && !cart.length) ||
+                          Boolean(moduleError) ||
+                          Boolean(
+                            product && Number(product.availableQuantity) <= 0,
+                          )
                         }
                       >
-                        <Plus />
-                        Add to Sale
+                        {saving ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <Check />
+                        )}
+                        {saving ? "Confirming..." : "Confirm Sale"}
                       </Button>
                     </div>
                     <p className="sales-stock-hint">
@@ -542,20 +609,34 @@ export function SalesView({
                   title="Sale Items"
                   className="sales-cart-panel"
                   action={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={!cart.length}
-                      onClick={() => {
-                        setCart([]);
-                        setPartialPaid("");
-                        setError("");
-                      }}
-                    >
-                      <Trash2 />
-                      Clear All
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addLine}
+                        disabled={
+                          !product || Number(product.availableQuantity) <= 0
+                        }
+                      >
+                        <Plus /> Add Another Product
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!displayedItems.length}
+                        onClick={() => {
+                          setCompleted(null);
+                          setCart([]);
+                          setPartialPaid("");
+                          setError("");
+                        }}
+                      >
+                        <Trash2 />
+                        Clear All
+                      </Button>
+                    </div>
                   }
                 >
                   <div className="sales-cart-body">
@@ -563,7 +644,7 @@ export function SalesView({
                       <table className="erp-table">
                         <caption className="sr-only">Sale items</caption>
                         <colgroup>
-                          {[27, 23, 8, 15, 17, 10].map((width, index) => (
+                          {[25, 20, 7, 13, 15, 12, 8].map((width, index) => (
                             <col key={index} style={{ width: `${width}%` }} />
                           ))}
                         </colgroup>
@@ -571,10 +652,11 @@ export function SalesView({
                           <tr>
                             {[
                               "Product",
-                              "Model",
+                              "Model Number",
                               "Qty",
                               "Unit Price (৳)",
                               "Total (৳)",
+                              "Due",
                               "Action",
                             ].map((column) => (
                               <th key={column}>{column}</th>
@@ -582,7 +664,7 @@ export function SalesView({
                           </tr>
                         </thead>
                         <tbody>
-                          {cart.map((line) => (
+                          {displayedItems.map((line) => (
                             <tr key={line.productId}>
                               <td>
                                 {line.name}
@@ -601,12 +683,16 @@ export function SalesView({
                                   ),
                                 )}
                               </td>
+                              <td aria-label="Customer outstanding due">
+                                {money(customerDue)}
+                              </td>
                               <td>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
                                   aria-label={`Remove ${line.name}`}
+                                  disabled={Boolean(completed)}
                                   onClick={() =>
                                     setCart((lines) =>
                                       lines.filter(
@@ -624,12 +710,12 @@ export function SalesView({
                         </tbody>
                       </table>
                     </div>
-                    {!cart.length ? (
+                    {!displayedItems.length ? (
                       <div className="erp-empty sales-cart-empty">
                         <PackageOpen />
                         <p>কোনো পণ্য যোগ করা হয়নি</p>
                         <span>
-                          পণ্য, quantity ও unit price দিয়ে Add to Sale চাপুন।
+                          পণ্য, quantity ও unit price দিয়ে Confirm Sale চাপুন।
                         </span>
                       </div>
                     ) : null}
@@ -657,11 +743,17 @@ export function SalesView({
                   </h2>
                   <SummaryRows
                     rows={[
-                      ["Total Items", String(cart.length)],
+                      [
+                        "Total Items",
+                        String(displayedItems.length + (product ? 1 : 0)),
+                      ],
                       [
                         "Total Quantity",
                         String(
-                          cart.reduce((sum, line) => sum + line.quantity, 0),
+                          displayedItems.reduce(
+                            (sum, line) => sum + line.quantity,
+                            product && validQuantity ? count : 0,
+                          ),
                         ),
                       ],
                       ["Subtotal", money(total)],
@@ -677,6 +769,7 @@ export function SalesView({
                     <Field label="Sales Type">
                       <select
                         aria-label="Sales type"
+                        disabled={Boolean(completed)}
                         value={saleType}
                         onChange={(event) => {
                           setSaleType(event.target.value);
@@ -684,53 +777,52 @@ export function SalesView({
                         }}
                       >
                         <option value="cash" disabled={!canPay}>
-                          Cash · Full Payment
+                          Full Payment
                         </option>
-                        <option value="credit">Credit · Partial / Due</option>
+                        <option value="partial" disabled={!canPay}>
+                          Partial Payment
+                        </option>
+                        <option value="credit">Due</option>
                       </select>
                     </Field>
-                    <Field label="Paid Amount (৳)">
-                      <input
-                        aria-label="Sales paid amount"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={paid}
-                        readOnly={saleType === "cash" || !canPay}
-                        onChange={(event) => setPartialPaid(event.target.value)}
-                      />
-                    </Field>
-                    <Field label="Payment Method">
-                      <select
-                        aria-label="Sales payment method"
-                        value={
-                          paymentAccountId ||
-                          options.data?.paymentAccounts[0]?.id ||
-                          ""
-                        }
-                        disabled={!canPay || cents(paid) === BigInt(0)}
-                        onChange={(event) =>
-                          setPaymentAccountId(event.target.value)
-                        }
-                      >
-                        <option value="">পেমেন্ট পদ্ধতি নির্বাচন করুন</option>
-                        {options.data?.paymentAccounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+                    {saleType === "partial" ? (
+                      <div className="sales-partial-payment-fields">
+                        <Field label="Paid Amount (৳)" required>
+                          <input
+                            aria-label="Sales paid amount"
+                            type="number"
+                            min="0"
+                            max={total}
+                            step="0.01"
+                            value={completed?.paid ?? partialPaid}
+                            readOnly={Boolean(completed)}
+                            placeholder="0.00"
+                            required
+                            onChange={(event) =>
+                              setPartialPaid(event.target.value)
+                            }
+                          />
+                        </Field>
+                        <Field label="Due Amount (৳)">
+                          <input
+                            aria-label="Sales due amount"
+                            readOnly
+                            disabled
+                            className="cursor-not-allowed bg-slate-50 text-slate-600"
+                            value={due}
+                          />
+                        </Field>
+                        <p className="sales-due-hint">
+                          মোট টাকা থেকে পরিশোধ বাদ দিয়ে বাকি টাকা কাস্টমারের
+                          বকেয়ায় যোগ হবে।
+                        </p>
+                      </div>
+                    ) : saleType === "credit" ? (
+                      <p className="sales-due-hint">
+                        সম্পূর্ণ {money(total)} কাস্টমারের বকেয়ায় যোগ হবে।
+                      </p>
+                    ) : null}
                   </div>
-                </Panel>
-                <Panel>
-                  <div className="erp-summary-total sales-due">
-                    <span>Due Amount</span>
-                    <span>{money(due)}</span>
-                  </div>
-                  <p className="sales-due-hint">
-                    বিক্রয় নিশ্চিত হলে বকেয়া নির্বাচিত customer-এর হিসাবে যুক্ত হবে।
-                  </p>
                 </Panel>
               </aside>
             </div>
@@ -741,28 +833,16 @@ export function SalesView({
                 ? "UI preview: লগইন ছাড়া বিক্রয় সংরক্ষিত হবে না।"
                 : "নিশ্চিত করলে stock ও customer-এর হিসাব আপডেট হবে।"}
             </span>
-            <Button
-              type="submit"
-              className="erp-button"
-              disabled={
-                preview ||
-                saving ||
-                busy ||
-                !customer ||
-                !cart.length ||
-                Boolean(moduleError)
-              }
-            >
-              {saving ? <LoaderCircle className="animate-spin" /> : <Check />}
-              {saving ? "Saving Sale..." : "Complete Sale"}
-            </Button>
           </div>
         </form>
       )}
       <Dialog.Root open={customerOpen} onOpenChange={setCustomerOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
-          <Dialog.Content className="feature-dialog sales-customer-dialog">
+          <Dialog.Content
+            className="feature-dialog sales-customer-dialog"
+            onInteractOutside={(event) => event.preventDefault()}
+          >
             <Dialog.Title className="text-xl font-bold">
               New Customer
             </Dialog.Title>

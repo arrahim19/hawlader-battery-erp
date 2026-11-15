@@ -131,11 +131,19 @@ export function TransactionView({
     : "new";
   const moduleId = purchase ? "purchases" : "sales";
   const columns = purchase
-    ? ["#", "Product", "Model", "Qty", "Unit Price (৳)", "Total (৳)", "Action"]
+    ? [
+        "#",
+        "Product",
+        "Model Number",
+        "Qty",
+        "Unit Price (৳)",
+        "Total (৳)",
+        "Action",
+      ]
     : [
         "#",
         "Product",
-        "Model",
+        "Model Number",
         "Qty",
         "Unit Price (৳)",
         "Discount (৳)",

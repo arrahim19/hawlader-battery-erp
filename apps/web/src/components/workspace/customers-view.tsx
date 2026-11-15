@@ -12,14 +12,11 @@ import {
   Filter,
   Plus,
   Search,
-  ShoppingCart,
-  UserRoundCheck,
   Users,
 } from "lucide-react";
 import {
   ModuleTabs,
   Panel,
-  StatCard,
   workspaceHref,
 } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
@@ -107,37 +104,6 @@ export function CustomersView({
           { id: "ledger", label: "Customer Ledger", icon: ClipboardList },
         ]}
       />
-      <div className="erp-stats">
-        <StatCard
-          label="Total Customers"
-          value={list ? String(list.summary.total) : "—"}
-          icon={Users}
-        />
-        <StatCard
-          label="Active Customers"
-          value={list ? String(list.summary.active) : "—"}
-          icon={UserRoundCheck}
-          tone="blue"
-        />
-        <StatCard
-          label="Credit Customers"
-          value={list ? String(list.summary.credit) : "—"}
-          icon={CreditCard}
-          tone="orange"
-        />
-        <StatCard
-          label="Total Sales"
-          value={money(list?.summary.totalSales)}
-          icon={ShoppingCart}
-          tone="purple"
-        />
-        <StatCard
-          label="Total Due"
-          value={money(list?.summary.totalDue)}
-          icon={CreditCard}
-          tone="red"
-        />
-      </div>
       {resource.error ? (
         <div
           role="alert"

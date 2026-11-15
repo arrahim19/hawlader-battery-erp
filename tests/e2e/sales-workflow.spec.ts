@@ -3,6 +3,7 @@ import type {
   CurrentUser,
   CustomerRecord,
   SalesOptions,
+  DashboardData,
 } from "../../packages/api-client/src";
 
 const owner: CurrentUser = {
@@ -87,6 +88,7 @@ async function mockSalesWorkspace(page: Page) {
   const unhandled: string[] = [];
   const errors: string[] = [];
   let failCompletion = true;
+  const recentSales: DashboardData["recentSales"] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   // Every API request, including writes, is fulfilled inside the browser fixture.
   // No customer, sale, payment, or stock change reaches the business database.
@@ -151,7 +153,7 @@ async function mockSalesWorkspace(page: Page) {
               replacementsReceived: 0,
               lowStock: 0,
             },
-            recentSales: [],
+            recentSales,
             lowStock: [],
             salesTrend: [],
           },
@@ -205,6 +207,14 @@ async function mockSalesWorkspace(page: Page) {
       const customer = customers.find((item) => item.id === body.customerId)!;
       customer.totalSales = total;
       customer.due = due;
+      recentSales.push({
+        id: "completed-sale",
+        invoiceNumber: "SALE-E2E-001",
+        customer: customer.name,
+        soldAt: body.saleDate + "T06:00:00.000Z",
+        total,
+        status: "CONFIRMED",
+      });
       return route.fulfill({
         status: 201,
         json: {
@@ -257,6 +267,68 @@ async function expectNoHorizontalOverflow(page: Page) {
   ).toBe(true);
 }
 
+test("Confirm Sale saves the selected product directly and updates the dashboard", async ({
+  page,
+}) => {
+  const fixture = await mockSalesWorkspace(page);
+  await page.goto("/sales/new");
+  await page
+    .getByLabel("Select customer", { exact: true })
+    .selectOption("existing-customer");
+  await page
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await page
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  await page.getByLabel("Sales quantity", { exact: true }).fill("3");
+  await page.getByLabel("Unit sale price", { exact: true }).fill("125.50");
+  await expect(
+    page.getByLabel("Sales paid amount", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Sales due amount", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Sales payment method", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".sales-cart-panel tbody tr")).toHaveCount(0);
+  const confirm = page.getByRole("button", {
+    name: "Confirm Sale",
+    exact: true,
+  });
+  await confirm.click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "temporarily unavailable",
+  );
+  await expect(page.getByLabel("Sales quantity", { exact: true })).toHaveValue(
+    "3",
+  );
+  await confirm.click();
+  await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
+  await expect(page.locator(".sales-success a")).toHaveCount(0);
+  const savedRow = page.locator(".sales-cart-panel tbody tr");
+  await expect(savedRow).toContainText("Sale Test Auto Part");
+  await expect(savedRow).toContainText("Standard");
+  await expect(savedRow).toContainText("376.50");
+  await expect(page.locator(".erp-summary-total")).toContainText("376.50");
+  await expect(page.locator(".sales-cart-empty")).toHaveCount(0);
+  expect(fixture.submittedSales).toHaveLength(2);
+  expect(fixture.submittedSales[1].key).toBe(fixture.submittedSales[0].key);
+  expect(fixture.submittedSales[1].body).toMatchObject({
+    items: [{ productId: "part-one", quantity: 3, unitPrice: "125.50" }],
+    paidAmount: "376.50",
+  });
+  await expect(confirm).toBeDisabled();
+  await page.goto("/dashboard");
+  const row = page.locator("tr").filter({ hasText: "SALE-E2E-001" });
+  await expect(row).toContainText("Existing Customer");
+  await expect(row).toContainText("376.50");
+  await expect(row).toContainText("CONFIRMED");
+  expect(fixture.unhandled).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test("a sale uses saved customers, filtered stock, editable prices and a safe retry", async ({
   page,
 }, info) => {
@@ -278,18 +350,31 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await newCustomer
     .getByLabel("Customer name", { exact: true })
     .fill("Sales Created Customer");
+  await page.mouse.click(2, 2);
+  await expect(newCustomer).toBeVisible();
+  await expect(
+    newCustomer.getByLabel("Customer name", { exact: true }),
+  ).toHaveValue("Sales Created Customer");
   await newCustomer
     .getByLabel("Customer mobile number", { exact: true })
     .fill("01800000002");
   await newCustomer
-    .getByLabel("Customer address (optional)", { exact: true })
+    .getByRole("button", { name: "Save Customer", exact: true })
+    .click();
+  await expect(newCustomer).toBeVisible();
+  expect(fixture.submittedCustomers).toHaveLength(0);
+  await expect(
+    newCustomer.getByLabel("Customer address", { exact: true }),
+  ).toHaveAttribute("required", "");
+  await expect(
+    newCustomer.getByLabel("Vehicle identifier (optional)", { exact: true }),
+  ).toHaveCount(0);
+  await newCustomer
+    .getByLabel("Customer address", { exact: true })
     .fill("Barishal");
   await newCustomer
     .getByLabel("Vehicle type (optional)", { exact: true })
     .fill("Easy Bike");
-  await newCustomer
-    .getByLabel("Vehicle identifier (optional)", { exact: true })
-    .fill("DHAKA-E2E-01");
   await newCustomer
     .getByRole("button", { name: "Save Customer", exact: true })
     .click();
@@ -301,7 +386,6 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
       phone: "01800000002",
       address: "Barishal",
       vehicleType: "Easy Bike",
-      vehicleIdentifier: "DHAKA-E2E-01",
     },
   ]);
   expect(await shellGeometry(page)).toEqual(originalShell);
@@ -340,7 +424,10 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   const quantity = page.getByLabel("Sales quantity", { exact: true });
   const price = page.getByLabel("Unit sale price", { exact: true });
   const lineTotal = page.getByLabel("Sales line total", { exact: true });
-  const add = page.getByRole("button", { name: "Add to Sale", exact: true });
+  const add = page.getByRole("button", {
+    name: "Add Another Product",
+    exact: true,
+  });
   const itemRow = (name: string) =>
     page
       .getByRole("table", { name: "Sale items", exact: true })
@@ -392,17 +479,26 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   const saleType = page.getByLabel("Sales type", { exact: true });
   const paid = page.getByLabel("Sales paid amount", { exact: true });
   await expect(saleType).toHaveValue("cash");
-  await expect(paid).toHaveValue("3376.50");
+  await expect(paid).toHaveCount(0);
   await saleType.selectOption("credit");
+  await expect(paid).toHaveCount(0);
+  await expect(page.locator(".sales-due-hint")).toContainText("3,376.50");
+  await saleType.selectOption("partial");
+  await paid.fill("1500.00");
+  await expect(
+    page.getByLabel("Sales due amount", { exact: true }),
+  ).toHaveValue("1876.50");
   await paid.fill("1000.00");
-  await page
-    .getByLabel("Sales payment method", { exact: true })
-    .selectOption("cash-one");
   await expect(paid).toHaveValue("1000.00");
-  await expect(page.locator(".sales-due")).toContainText("2,376.50");
+  await expect(
+    page.getByLabel("Sales due amount", { exact: true }),
+  ).toHaveValue("2376.50");
+  await expect(
+    page.getByLabel("Sales due amount", { exact: true }),
+  ).toHaveAttribute("readonly", "");
   await expectNoHorizontalOverflow(page);
   const complete = page.getByRole("button", {
-    name: "Complete Sale",
+    name: "Confirm Sale",
     exact: true,
   });
   await complete.click();
@@ -414,9 +510,17 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await expect(itemRow("Sale Test Auto Part")).toBeVisible();
   await expect(itemRow("Sale Test Battery")).toBeVisible();
   await complete.click();
-  await expect(page.getByText(/SALE-E2E-001/).first()).toBeVisible();
-  await expect(itemRow("Sale Test Auto Part")).toHaveCount(0);
-  await expect(itemRow("Sale Test Battery")).toHaveCount(0);
+  await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
+  await expect(itemRow("Sale Test Auto Part")).toBeVisible();
+  await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await expect(summary("Subtotal")).toContainText("3,376.50");
+  await expect(paid).toHaveValue("1000.00");
+  await expect(
+    page.getByLabel("Sales due amount", { exact: true }),
+  ).toHaveValue("2376.50");
+  await expect(
+    page.getByRole("button", { name: "Remove Sale Test Battery", exact: true }),
+  ).toBeDisabled();
   await expect(complete).toBeDisabled();
   expect(fixture.submittedSales).toHaveLength(2);
   const [failed, successful] = fixture.submittedSales;
@@ -440,6 +544,14 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     paidAmount: "1000.00",
     paymentAccountId: "cash-one",
   });
+  await category.selectOption("parts");
+  await product.selectOption("part-one");
+  await quantity.fill("1");
+  await expect(itemRow("Sale Test Auto Part")).toHaveCount(0);
+  await expect(itemRow("Sale Test Battery")).toHaveCount(0);
+  await expect(page.locator(".sales-success")).toHaveCount(0);
+  await expect(summary("Subtotal")).toContainText("100.00");
+  await expect(complete).toBeEnabled();
   expect(fixture.submittedCustomers).toHaveLength(1);
   await page.evaluate(() => window.scrollTo(0, 0));
   expect(await shellGeometry(page)).toEqual(originalShell);

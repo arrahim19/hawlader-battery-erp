@@ -13,6 +13,7 @@ export type {
   ProductTrackingKind,
   PurchaseOptions,
   PurchaseList,
+  RecentPurchases,
   ReceivedPurchase,
   CustomerRecord,
   CustomerList,

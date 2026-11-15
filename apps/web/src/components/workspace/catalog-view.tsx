@@ -9,22 +9,14 @@ import {
   Cog,
   Filter,
   Package,
-  Truck,
-  TriangleAlert,
   Search,
   X,
 } from "lucide-react";
-import { EmptyTable, Panel, StatCard } from "@/components/reference-ui";
+import { EmptyTable, Panel } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/components/session-provider";
 import { cn, money } from "@/lib/utils";
-import {
-  type CatalogMetadata,
-  type ProductList,
-  type DashboardData,
-  api,
-  csrf,
-} from "@/lib/api";
+import { type CatalogMetadata, type ProductList, api, csrf } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { ProductNameForm } from "./catalog-forms";
 import { CatalogActions } from "./catalog-actions";
@@ -41,13 +33,10 @@ const columns = [
   "#",
   "পণ্যের নাম (Product)",
   "ধরন",
-  "মডেল / স্পেসিফিকেশন",
-  "ইউনিট",
-  "মোট স্টক",
-  "বিক্রয়যোগ্য",
-  "বিক্রয় মূল্য",
+  "Model Number",
+  "পরিমাণ (Pcs)",
+  "Purchase Price (৳)",
   "ওয়ারেন্টি",
-  "স্ট্যাটাস",
 ];
 
 function EasyBikeIcon() {
@@ -79,13 +68,7 @@ function EasyBikeIcon() {
   );
 }
 
-export function CatalogView({
-  preview = false,
-  data = null,
-}: {
-  preview?: boolean;
-  data?: DashboardData | null;
-}) {
+export function CatalogView({ preview = false }: { preview?: boolean }) {
   const user = useSession();
   const [typeId, setTypeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -170,7 +153,7 @@ export function CatalogView({
   const error = metadata.error || products.error;
   const pages = Math.max(1, Math.ceil((products.data?.total ?? 0) / pageSize));
   return (
-    <>
+    <div className="inventory-workspace">
       <div className="erp-page-title">
         <div>
           <span className="title-icon">
@@ -181,42 +164,6 @@ export function CatalogView({
             <p>ক্যাটাগরি, পণ্যের নাম ও স্টক দেখুন। Purchase থেকে স্টক যোগ করুন।</p>
           </div>
         </div>
-      </div>
-      <div className="erp-stats inventory-stats">
-        <StatCard
-          label="মোট স্টক"
-          value={preview ? "—" : (data?.stock?.accountedUnits ?? "—")}
-          icon={Package}
-        />
-        <StatCard
-          label="বিক্রয়যোগ্য স্টক"
-          value={preview ? "—" : (data?.counts.availableStock ?? "—")}
-          icon={Box}
-        />
-        <StatCard
-          label="রিপ্লেসেবল"
-          value={preview ? "—" : String(data?.stock?.replaceable ?? "—")}
-          icon={TriangleAlert}
-          tone="orange"
-        />
-        <StatCard
-          label="কোম্পানিতে পাঠানো"
-          value={preview ? "—" : String(data?.counts.sentToCompany ?? "—")}
-          icon={Truck}
-          tone="blue"
-        />
-        <StatCard
-          label="রিজার্ভ"
-          value={preview ? "—" : String(data?.stock?.reserved ?? "—")}
-          icon={Package}
-          tone="purple"
-        />
-        <StatCard
-          label="কম স্টক পণ্য"
-          value={preview ? "—" : String(data?.counts.lowStock ?? "—")}
-          icon={TriangleAlert}
-          tone="red"
-        />
       </div>
       {message ? (
         <p
@@ -358,7 +305,7 @@ export function CatalogView({
             ))}
           </section>
         </aside>
-        <Panel>
+        <Panel className="inventory-products-panel">
           <div className="erp-filterbar">
             <label className="erp-search">
               <Search size={18} />
@@ -435,29 +382,16 @@ export function CatalogView({
                       <td>{(page - 1) * pageSize + index + 1}</td>
                       <td>
                         <strong>{product.name}</strong>
-                        <small className="mt-1 block max-w-48 break-all text-[10px] text-slate-400">
-                          {product.sku}
-                        </small>
                       </td>
                       <td>{product.type.name}</td>
-                      <td>
-                        {[
-                          product.model,
-                          product.capacityAh ? `${product.capacityAh} Ah` : "",
-                          product.voltage ? `${product.voltage} V` : "",
-                          product.specifications,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                      </td>
-                      <td>{product.unit}</td>
+                      <td>{product.model.trim() || "N/A"}</td>
                       <td>{product.stock.total}</td>
-                      <td>{product.stock.available}</td>
                       <td className="whitespace-nowrap">
-                        {money(product.defaultSellingPrice)}
+                        {product.latestPurchasePrice == null
+                          ? "ক্রয় নিশ্চিত হয়নি"
+                          : money(product.latestPurchasePrice)}
                       </td>
                       <td>{product.warrantyMonths} মাস</td>
-                      <td>{product.active ? "Active" : "Inactive"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -586,6 +520,6 @@ export function CatalogView({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-    </>
+    </div>
   );
 }

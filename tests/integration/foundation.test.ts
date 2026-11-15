@@ -394,7 +394,7 @@ test("fixed product categories and their products persist, filter, and count wit
     { ...part, defaultSellingPrice: "-1" },
     { ...part, defaultSellingPrice: "1.234" },
     { ...part, capacityAh: "12" },
-    { ...battery, capacityAh: undefined },
+    { ...battery, capacityAh: "0" },
     { ...battery, model: undefined },
     { ...battery, voltage: "0" },
     { ...battery, defaultPurchasePrice: "100" },
@@ -464,6 +464,33 @@ test("fixed product categories and their products persist, filter, and count wit
     },
   });
   assert.equal(audits, 2);
+  const withoutCapacity = (
+    await create("products", {
+      ...battery,
+      name: "Battery without capacity " + id,
+      capacityAh: undefined,
+    })
+  ).body.data;
+  assert.equal(withoutCapacity.capacityAh, null);
+  assert.equal(withoutCapacity.warrantyMonths, 18);
+  await create(
+    "products",
+    {
+      ...battery,
+      name: "Battery without capacity " + id,
+      capacityAh: undefined,
+    },
+    409,
+  );
+  const purchaseOptions = (
+    await owner.get("/api/v1/purchases/options").expect(200)
+  ).body.data;
+  assert.equal(
+    purchaseOptions.products.find(
+      (item: { id: string }) => item.id === withoutCapacity.id,
+    ).capacityAh,
+    null,
+  );
 });
 
 test("product-name groups retain empty links and count and filter separately within each fixed category", async () => {
@@ -991,7 +1018,6 @@ test("database preserves repeated production dates, unique unit IDs, normalized 
   for (const method of ["PRODUCTION_DATE", "SERIAL"] as const) {
     const product = await db.product.create({
       data: {
-        sku: "test-" + method + id,
         name: "Isolated test product",
         model: id,
         identityKey: method + id,
@@ -1114,7 +1140,6 @@ test("replacement lineage can be created atomically without breaking the batch-u
   });
   const product = await db.product.create({
     data: {
-      sku: "lineage-sku-" + id,
       name: "Lineage test battery",
       model: id,
       identityKey: "lineage-product-" + id,
@@ -1281,7 +1306,7 @@ test("only three permanent categories are offered and owners cannot create or de
   const metadata = (await owner.get("/api/v1/catalog").expect(200)).body.data;
   assert.deepEqual(
     metadata.types.map((type: { name: string }) => type.name),
-    ["Battery", "Parts & Accessories", "Easy Bike & Rickshaw"],
+    ["Battery", "Parts", "Easy Bike & Rickshaw"],
   );
   const count = await db.productType.count();
   await owner
@@ -1365,6 +1390,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   const supplier = await db.supplier.create({
     data: {
       name: "Receiving supplier " + id,
+      company: "Receiving company " + id,
       productType: { connect: { code: "BATTERY" } },
     },
   });
@@ -1650,6 +1676,27 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     listing.items.find((item: { id: string }) => item.id === result.id).due,
     "1500.15",
   );
+  await request(app.getHttpServer())
+    .get("/api/v1/purchases/recent")
+    .expect(401);
+  await staff.get("/api/v1/purchases/recent").expect(403);
+  const recent = (await owner.get("/api/v1/purchases/recent").expect(200)).body
+    .data;
+  assert(recent.items.length <= 10);
+  assert.equal(recent.items[0].id, result.id);
+  assert.equal(recent.items[0].purchaseDate, body.purchaseDate);
+  assert.equal(recent.items[0].supplierReference, body.reference);
+  assert.deepEqual(recent.items[0].supplier, {
+    name: supplier.name,
+    company: supplier.company,
+  });
+  assert.equal(recent.items[0].items[0].name, battery.name);
+  assert.equal(recent.items[0].items[0].model, battery.model);
+  assert.equal(recent.items[0].items[0].capacityAh, "100");
+  assert.equal(recent.items[0].items[0].voltage, "12");
+  assert.equal(recent.items[0].items[0].quantity, "2");
+  assert.equal(recent.items[0].items[0].unitPrice, "1000.10");
+  assert.equal(recent.items[0].items[0].total, "2000.20");
   assert.equal(
     (await receive({ ...body, paidAmount: "500.00" }, key)).status,
     409,
@@ -1775,6 +1822,9 @@ test("customers are shared persisted contacts with vehicles, validation, audit a
       .set("X-CSRF-Token", await csrf(staff))
       .send(payload);
   assert.equal((await write({ ...body, phone: "bad" })).status, 400);
+  for (const address of [undefined, null, "", "   ", "x".repeat(501)]) {
+    assert.equal((await write({ ...body, address })).status, 400);
+  }
   assert.equal((await write({ ...body, active: false })).status, 400);
   assert.equal((await write({ ...body, vehicleType: "" })).status, 400);
   const created = await write(body);
@@ -1837,6 +1887,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
     await write("customers", {
       name: "Sale customer " + id,
       phone: "01700000000",
+      address: "Dhaka",
     })
   ).body.data;
   const quantityType = await db.productType.findUniqueOrThrow({
@@ -2127,6 +2178,26 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
 });
 
 test("receiving batteries without serial numbers creates stock and replays safely", async () => {
+  for (const [code, kind] of [
+    ["1300", "ASSET"],
+    ["2100", "LIABILITY"],
+    ["5100", "EXPENSE"],
+  ] as const) {
+    await db.account.upsert({
+      where: { code },
+      update: {},
+      create: { code, name: "Stock valuation " + code, kind },
+    });
+  }
+  const stockValue = async () =>
+    Math.round(
+      Number(
+        (await app.get(DashboardService).get(true, "2000-01-01", "2000-01-01"))
+          .financials!.availableStockPurchaseValue,
+      ) * 100,
+    );
+  const initialStockValue = await stockValue();
+
   const type = await db.productType.upsert({
     where: { code: "BATTERY" },
     update: {},
@@ -2151,11 +2222,19 @@ test("receiving batteries without serial numbers creates stock and replays safel
     })
     .expect(201);
   const productId = created.body.data.id;
+  assert.equal(created.body.data.latestPurchasePrice, null);
+  const latestPrice = async (name: string) =>
+    (
+      await owner
+        .get("/api/v1/products?q=" + encodeURIComponent(name))
+        .expect(200)
+    ).body.data.items.find((item: { id: string }) => item.id === productId)
+      ?.latestPurchasePrice;
   const key = randomUUID();
   const body = {
     supplierId: supplier.id,
     purchaseDate: "2026-11-15",
-    items: [{ productId, quantity: 15, unitPrice: "0.00" }],
+    items: [{ productId, quantity: 15, unitPrice: "1000.10" }],
   };
   const send = async (payload: object, requestKey = key) =>
     owner
@@ -2166,6 +2245,8 @@ test("receiving batteries without serial numbers creates stock and replays safel
       .send(payload);
   const received = await send(body);
   assert.equal(received.status, 201, JSON.stringify(received.body));
+  assert.equal((await stockValue()) - initialStockValue, 1500150);
+  assert.equal(await latestPrice(created.body.data.name), "1000.10");
   const replay = await send(body);
   assert.equal(replay.status, 201, JSON.stringify(replay.body));
   assert.equal(replay.body.data.receiptId, received.body.data.receiptId);
@@ -2214,11 +2295,55 @@ test("receiving batteries without serial numbers creates stock and replays safel
     }),
     3,
   );
+  assert.equal((await stockValue()) - initialStockValue, 1200120);
+  const extraBatch = await send(
+    { ...body, items: [{ productId, quantity: 2, unitPrice: "2000.25" }] },
+    randomUUID(),
+  );
+  assert.equal(extraBatch.status, 201, JSON.stringify(extraBatch.body));
+  assert.equal(await latestPrice(created.body.data.name), "2000.25");
+  assert.equal((await stockValue()) - initialStockValue, 1600170);
+  const partType = await db.productType.findUniqueOrThrow({
+    where: { code: "PARTS" },
+  });
+  const partSupplier = await db.supplier.create({
+    data: {
+      name: "Valuation parts supplier " + id,
+      productTypeId: partType.id,
+    },
+  });
+  const partProduct = await owner
+    .post("/api/v1/products")
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({
+      typeId: partType.id,
+      name: "Valuation part " + id,
+      category: "Valuation part " + id,
+      unit: "pcs",
+    })
+    .expect(201);
+  const partsReceived = await send(
+    {
+      supplierId: partSupplier.id,
+      purchaseDate: body.purchaseDate,
+      items: [
+        {
+          productId: partProduct.body.data.id,
+          quantity: 7,
+          unitPrice: "12.34",
+        },
+      ],
+    },
+    randomUUID(),
+  );
+  assert.equal(partsReceived.status, 201, JSON.stringify(partsReceived.body));
+  assert.equal((await stockValue()) - initialStockValue, 1608808);
   const options = await owner.get("/api/v1/sales/options").expect(200);
   const available = options.body.data.products.find(
     (item: { id: string }) => item.id === productId,
   );
-  assert.equal(available.availableQuantity, "12");
+  assert.equal(available.availableQuantity, "14");
   assert.equal(Object.hasOwn(available, "units"), false);
   const forbidden = await send(
     {

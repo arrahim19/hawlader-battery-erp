@@ -46,6 +46,7 @@ export function ReferenceWorkspace({
       !loading &&
       !denied &&
       moduleId !== "products" &&
+      moduleId !== "inventory" &&
       moduleId !== "recycle-bin" &&
       moduleId !== "sales" &&
       moduleId !== "customers" &&
@@ -102,7 +103,7 @@ export function ReferenceWorkspace({
       ) : moduleId === "customers" ? (
         <CustomersView preview={preview} view={view} />
       ) : moduleId === "inventory" ? (
-        <CatalogView preview={preview} data={data} />
+        <CatalogView preview={preview} />
       ) : moduleId === "replacements" ? (
         <ReplacementView preview={preview} view={view} data={data} />
       ) : moduleId === "suppliers" && ["", "list", "new"].includes(view) ? (

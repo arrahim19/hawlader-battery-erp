@@ -35,7 +35,7 @@ class CreateCustomerDto {
   @IsString()
   @Matches(/^[+0-9][0-9 ()-]{5,29}$/)
   phone!: string;
-  @Transform(trim) @IsOptional() @IsString() @MaxLength(500) address?: string;
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(500) address!: string;
   @Transform(trim)
   @IsOptional()
   @IsString()
@@ -251,7 +251,7 @@ export class CustomersController {
         data: {
           name: body.name,
           phone: body.phone,
-          address: body.address || null,
+          address: body.address,
           ...(body.vehicleType
             ? {
                 vehicles: {

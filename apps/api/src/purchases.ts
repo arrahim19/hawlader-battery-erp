@@ -98,9 +98,15 @@ export class PurchasesController {
             model: true,
             unit: true,
             batteryDetail: {
-              select: { capacityAh: true, defaultWarrantyMonths: true },
+              select: {
+                capacityAh: true,
+                voltage: true,
+                defaultWarrantyMonths: true,
+              },
             },
-            partsDetail: { select: { defaultWarrantyMonths: true } },
+            partsDetail: {
+              select: { specifications: true, defaultWarrantyMonths: true },
+            },
             type: { select: { id: true, name: true, trackingKind: true } },
           },
           orderBy: { name: "asc" },
@@ -138,7 +144,9 @@ export class PurchasesController {
         products: products.map(
           ({ batteryDetail, partsDetail, ...product }) => ({
             ...product,
-            capacityAh: batteryDetail?.capacityAh.toString() ?? null,
+            capacityAh: batteryDetail?.capacityAh?.toString() ?? null,
+            voltage: batteryDetail?.voltage?.toString() ?? null,
+            specifications: partsDetail?.specifications ?? null,
             warrantyMonths:
               batteryDetail?.defaultWarrantyMonths ??
               partsDetail?.defaultWarrantyMonths ??
@@ -153,6 +161,71 @@ export class PurchasesController {
         ),
         suppliers,
         paymentAccounts,
+      },
+    };
+  }
+
+  @Get("recent")
+  async recent() {
+    const purchases = await this.db.purchase.findMany({
+      where: { status: "RECEIVED" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 10,
+      select: {
+        id: true,
+        number: true,
+        orderDate: true,
+        supplierReference: true,
+        supplier: { select: { name: true, company: true } },
+        items: {
+          orderBy: { lineNumber: "asc" },
+          select: {
+            id: true,
+            quantity: true,
+            unitPrice: true,
+            product: {
+              select: {
+                name: true,
+                model: true,
+                type: { select: { name: true } },
+                batteryDetail: {
+                  select: {
+                    capacityAh: true,
+                    voltage: true,
+                    defaultWarrantyMonths: true,
+                  },
+                },
+                partsDetail: {
+                  select: { specifications: true, defaultWarrantyMonths: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    return {
+      data: {
+        items: purchases.map(({ orderDate, items, ...purchase }) => ({
+          ...purchase,
+          purchaseDate: orderDate.toISOString().slice(0, 10),
+          items: items.map(({ product, quantity, unitPrice, id }) => ({
+            id,
+            name: product.name,
+            typeName: product.type.name,
+            model: product.model,
+            capacityAh: product.batteryDetail?.capacityAh?.toString() ?? null,
+            voltage: product.batteryDetail?.voltage?.toString() ?? null,
+            specifications: product.partsDetail?.specifications ?? null,
+            warrantyMonths:
+              product.batteryDetail?.defaultWarrantyMonths ??
+              product.partsDetail?.defaultWarrantyMonths ??
+              0,
+            quantity: quantity.toString(),
+            unitPrice: unitPrice.toFixed(2),
+            total: quantity.mul(unitPrice).toFixed(2),
+          })),
+        })),
       },
     };
   }

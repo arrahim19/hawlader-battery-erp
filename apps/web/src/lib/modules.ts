@@ -31,7 +31,13 @@ export const modules: Record<
     description:
       "A complete journey for every faulty battery and warranty claim.",
     phase: 5,
-    columns: ["Claim", "Product / Model", "Source", "Supplier", "Status"],
+    columns: [
+      "Claim",
+      "Product / Model Number",
+      "Source",
+      "Supplier",
+      "Status",
+    ],
   },
   customers: {
     title: "Customers",

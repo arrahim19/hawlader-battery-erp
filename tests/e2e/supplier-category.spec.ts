@@ -10,7 +10,7 @@ test("suppliers are created and assigned by category, and purchases show matchin
   };
   const parts = {
     id: "27a58292-67fe-4909-8d1e-9bfb377d6202",
-    name: "Parts & Accessories",
+    name: "Parts",
     trackingKind: "QUANTITY",
   };
   const suppliers = [

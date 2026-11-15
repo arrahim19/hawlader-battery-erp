@@ -196,7 +196,7 @@ export function ProductForm({
             </p>
           ) : null}
         </Field>
-        <Field label="Model" required={individual}>
+        <Field label="Model Number" required={individual}>
           <input name="model" maxLength={160} required={individual} />
         </Field>
         <Field label="Unit" required>

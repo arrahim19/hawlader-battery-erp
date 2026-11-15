@@ -409,7 +409,6 @@ export class SalesController {
                 id: product.id,
                 name: product.name,
                 model: product.model,
-                sku: product.sku,
                 unit: product.unit,
                 type: product.type.name,
               },

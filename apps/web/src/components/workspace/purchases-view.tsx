@@ -1,18 +1,15 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Dialog } from "radix-ui";
 import {
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   CreditCard,
   List,
   LoaderCircle,
   PackageOpen,
   Plus,
   ShoppingCart,
-  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,21 +24,65 @@ import {
   post,
   type PurchaseOptions,
   type PurchaseList,
+  type RecentPurchases,
   type ReceivedPurchase,
   type CatalogProduct,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
+import { todayInDhaka } from "@/lib/use-dashboard";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
+import { PurchaseQuickAdd } from "./purchase-quick-add";
 
 type CartItem = {
   productId: string;
   name: string;
   typeName: string;
   model: string;
+  capacityAh?: string | null;
+  voltage?: string | null;
+  specifications?: string | null;
+  warrantyMonths: number;
   quantity: number;
   unitPrice: string;
 };
+
+type PurchaseDraft = {
+  cart: CartItem[];
+  supplierId: string;
+  productTypeId: string;
+  purchaseDate: string;
+  reference: string;
+  paymentType: string;
+  partialPaid: string;
+  requestKey: string | null;
+  requestBody?: string;
+};
+function readPurchaseDraft(key: string): PurchaseDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const draft = JSON.parse(
+      sessionStorage.getItem(key) ?? "null",
+    ) as PurchaseDraft | null;
+    if (
+      !draft ||
+      !Array.isArray(draft.cart) ||
+      !draft.cart.length ||
+      draft.cart.length > 100 ||
+      !draft.cart.every(
+        (item) =>
+          typeof item.productId === "string" &&
+          Number.isInteger(item.quantity) &&
+          item.quantity > 0 &&
+          /^\d{1,14}(?:\.\d{1,2})?$/.test(item.unitPrice),
+      )
+    )
+      return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
 
 export function PurchasesView({
   preview,
@@ -55,10 +96,20 @@ export function PurchasesView({
   moduleError?: string;
 }) {
   const user = useSession();
+  const canPay =
+    preview || Boolean(user?.permissions.includes("finance.write"));
+  const draftKey = "hawlader:purchase-draft:" + (user?.id ?? "preview");
+  const [draft] = useState(() =>
+    preview ? null : readPurchaseDraft(draftKey),
+  );
   const [revision, setRevision] = useState(0);
-  const [notesOpen, setNotesOpen] = useState(false);
-  const [cartPage, setCartPage] = useState(0);
-  const [cartPageSize, setCartPageSize] = useState(3);
+  const [quickAdd, setQuickAdd] = useState<"product" | "supplier" | null>(null);
+  const [addedSuppliers, setAddedSuppliers] = useState<
+    PurchaseOptions["suppliers"]
+  >([]);
+  const [addedProductNames, setAddedProductNames] = useState<
+    NonNullable<PurchaseOptions["productNames"]>
+  >([]);
   const [mobileSection, setMobileSection] = useState(0);
   const formGrid = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
@@ -70,27 +121,68 @@ export function PurchasesView({
     !preview && !loading && view === "list" ? `/purchases?page=${page}` : null,
     revision,
   );
-  const [supplierId, setSupplierId] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState("");
-  const [reference, setReference] = useState("");
-  const [notes, setNotes] = useState("");
-  const [productTypeId, setProductTypeId] = useState("");
+  const recent = useCatalogResource<RecentPurchases>(
+    preview || loading || view === "list" ? null : "/purchases/recent",
+    revision,
+  );
+  const [supplierId, setSupplierId] = useState(draft?.supplierId ?? "");
+  const [purchaseDate, setPurchaseDate] = useState(
+    () => draft?.purchaseDate || todayInDhaka(),
+  );
+  const [reference, setReference] = useState(draft?.reference ?? "");
+  const [productTypeId, setProductTypeId] = useState(
+    draft?.productTypeId ?? "",
+  );
   const [productName, setProductName] = useState("");
   const [model, setModel] = useState("");
   const [warrantyMonths, setWarrantyMonths] = useState("");
-  const [capacityAh, setCapacityAh] = useState("");
-  const [adding, setAdding] = useState(false);
   const [createdProducts, setCreatedProducts] = useState<CatalogProduct[]>([]);
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(0);
   const [unitPrice, setUnitPrice] = useState("");
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [paymentType, setPaymentType] = useState("due");
-  const [partialPaid, setPartialPaid] = useState("");
-  const [paymentAccountId, setPaymentAccountId] = useState("");
+  const [cart, setCart] = useState<CartItem[]>(draft?.cart ?? []);
+  const [confirmedItems, setConfirmedItems] = useState<CartItem[]>([]);
+  const [paymentType, setPaymentType] = useState(draft?.paymentType ?? "full");
+  const [partialPaid, setPartialPaid] = useState(draft?.partialPaid ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [received, setReceived] = useState<ReceivedPurchase | null>(null);
-  const requestKey = useRef<string | null>(null);
+  const requestKey = useRef<string | null>(draft?.requestKey ?? null);
+  const requestBody = useRef(draft?.requestBody ?? "");
+  const submitting = useRef(false);
+  useEffect(() => {
+    if (preview) return;
+    try {
+      if (!cart.length) sessionStorage.removeItem(draftKey);
+      else
+        sessionStorage.setItem(
+          draftKey,
+          JSON.stringify({
+            cart,
+            supplierId,
+            productTypeId,
+            purchaseDate,
+            reference,
+            paymentType,
+            partialPaid,
+            requestKey: requestKey.current,
+            requestBody: requestBody.current,
+          } satisfies PurchaseDraft),
+        );
+    } catch {
+      /* The form remains usable when browser storage is unavailable. */
+    }
+  }, [
+    cart,
+    supplierId,
+    productTypeId,
+    purchaseDate,
+    reference,
+    paymentType,
+    partialPaid,
+    draftKey,
+    preview,
+    saving,
+  ]);
   const types = options.data?.types ?? [];
   const filteredProducts = [
     ...(options.data?.products ?? []),
@@ -105,17 +197,23 @@ export function PurchasesView({
       item.name === productName &&
       item.model.toLowerCase() === model.trim().toLowerCase(),
   );
-  const filteredSuppliers = (options.data?.suppliers ?? []).filter(
-    (supplier) => supplier.productTypeId === productTypeId,
+  const filteredSuppliers = [
+    ...(options.data?.suppliers ?? []),
+    ...addedSuppliers,
+  ].filter(
+    (supplier, index, items) =>
+      supplier.productTypeId === productTypeId &&
+      items.findIndex((item) => item.id === supplier.id) === index,
   );
   const selectedSupplierId = filteredSuppliers.some(
     (supplier) => supplier.id === supplierId,
   )
     ? supplierId
     : "";
-  const productNames = (options.data?.productNames ?? []).filter(
-    (item) => item.typeId === productTypeId,
-  );
+  const productNames = [
+    ...(options.data?.productNames ?? []),
+    ...addedProductNames,
+  ].filter((item) => item.typeId === productTypeId);
   const productChoices = [
     ...filteredProducts.map((item) => ({ value: item.id, name: item.name })),
     ...productNames.map((item) => ({
@@ -129,9 +227,13 @@ export function PurchasesView({
   const hasProductOptions = productChoices.length > 0;
   const selectedType = types.find((item) => item.id === productTypeId);
   const individual = selectedType?.trackingKind === "BATTERY_UNIT";
+  const entryTotal =
+    Number.isInteger(quantity) && quantity > 0 && productName
+      ? cents(unitPrice) * BigInt(quantity)
+      : BigInt(0);
   const totalCents = cart.reduce(
     (sum, item) => sum + cents(item.unitPrice) * BigInt(item.quantity),
-    BigInt(0),
+    entryTotal,
   );
   const total = decimalAmount(totalCents);
   const paid =
@@ -141,170 +243,154 @@ export function PurchasesView({
         ? partialPaid || "0.00"
         : "0.00";
   const due = decimalAmount(totalCents - cents(paid));
-  const canPay = Boolean(user?.permissions.includes("finance.write"));
   const canReceive = Boolean(user?.permissions.includes("inventory.receive"));
   const canDefineProduct =
     preview || Boolean(user?.permissions.includes("catalog.write"));
   const current = view === "list" ? "list" : "new";
-  const cartPages = Math.max(1, Math.ceil(cart.length / cartPageSize));
-  const cartIndex = Math.min(cartPage, cartPages - 1);
-  const cartRows = cart.slice(
-    cartIndex * cartPageSize,
-    (cartIndex + 1) * cartPageSize,
-  );
-  useEffect(() => {
-    if (current !== "new") return;
-    const panel = formGrid.current?.querySelector(".purchase-items");
-    if (!panel) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setCartPageSize(
-        Math.max(
-          1,
-          Math.min(6, Math.floor((entry.contentRect.height - 112) / 64)),
-        ),
-      );
-    });
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [current]);
+  const showingConfirmed = Boolean(received && !cart.length && !productName);
+  const summaryItems = showingConfirmed ? confirmedItems : cart;
+  const summaryTotal = showingConfirmed ? received!.total : total;
+  const summaryPaid = showingConfirmed ? received!.paid : paid;
+  const summaryDue = showingConfirmed ? received!.due : due;
   function selectProductName(name: string) {
     setProductName(name);
     setModel("");
     setWarrantyMonths("");
-    setCapacityAh("");
   }
-  async function addItem() {
-    if (adding || preview) return;
-    setError("");
-    if (
-      !selectedType ||
-      !productName ||
-      !Number.isInteger(quantity) ||
-      quantity < 1 ||
-      quantity > (individual ? 500 : 10000) ||
-      !/^\d{1,14}(?:\.\d{1,2})?$/.test(unitPrice)
-    ) {
-      setError(
-        "Select a product and enter a valid quantity and purchase price.",
-      );
-      return;
-    }
-    if (
-      (individual &&
-        (!model.trim() ||
-          !/^\d{1,8}(?:\.\d{1,2})?$/.test(capacityAh) ||
-          Number(capacityAh) <= 0)) ||
-      !/^\d+$/.test(warrantyMonths || "0") ||
-      Number(warrantyMonths) > 600
-    ) {
-      setError(
-        "Enter the warranty (0-600 months), and required battery model and capacity.",
-      );
-      return;
-    }
-    setAdding(true);
-    try {
-      let selected = product;
-      if (!selected) {
-        if (!canDefineProduct)
-          throw new Error(
-            "You do not have permission to add a new product model.",
-          );
-        const created = await post<CatalogProduct>("/products", {
-          typeId: productTypeId,
-          name: productName,
-          category: productName,
-          model: model.trim(),
-          unit: "pcs",
-          warrantyMonths: Number(warrantyMonths),
-          ...(individual ? { capacityAh } : {}),
-        });
-        setCreatedProducts((items) => [...items, created]);
-        selected = created;
-      }
-      if (cart.some((item) => item.productId === selected.id))
-        throw new Error(
-          "This product model is already in the purchase list. Remove its line to change the quantity.",
-        );
-      setCartPage(Math.floor(cart.length / cartPageSize));
-      setCart((items) => [
-        ...items,
-        {
-          productId: selected.id,
-          name: selected.name,
-          model: selected.model,
-          typeName: selected.type.name,
-          quantity,
-          unitPrice,
-        },
-      ]);
-      selectProductName("");
-      setQuantity(1);
-      setUnitPrice("");
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Could not add this product.",
-      );
-    } finally {
-      setAdding(false);
-    }
-  }
-  async function receive(event: FormEvent<HTMLFormElement>) {
+  async function confirmPurchase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (preview || saving) return;
+    if (preview || submitting.current || !canReceive) return;
     setError("");
-    setReceived(null);
-    if (!selectedSupplierId || !cart.length) {
-      setError("সাপ্লায়ার নির্বাচন করুন এবং তালিকায় অন্তত একটি পণ্য যোগ করুন।");
+    if (!selectedSupplierId || !purchaseDate) {
+      setError("Select a supplier and enter the purchase date.");
+      return;
+    }
+    if (productName) {
+      if (
+        !selectedType ||
+        !Number.isInteger(quantity) ||
+        quantity < 1 ||
+        quantity > (individual ? 500 : 10000) ||
+        !/^\d{1,14}(?:\.\d{1,2})?$/.test(unitPrice)
+      ) {
+        setError(
+          "Select a product and enter a valid quantity and purchase price.",
+        );
+        return;
+      }
+      if (
+        (individual && !model.trim()) ||
+        !/^\d+$/.test(warrantyMonths || "0") ||
+        Number(warrantyMonths) > 600
+      ) {
+        setError(
+          "Enter the warranty (0-600 months), and required battery model.",
+        );
+        return;
+      }
+    } else if (!cart.length) {
+      setError("Select a product to confirm the purchase.");
       return;
     }
     if (
+      !/^\d{1,14}(?:\.\d{1,2})?$/.test(paid) ||
       cents(paid) > totalCents ||
       (paymentType === "partial" && cents(paid) <= BigInt(0))
     ) {
-      setError("Paid amount সঠিকভাবে দিন।");
+      setError("Enter a valid paid amount within the purchase total.");
       return;
     }
-    requestKey.current ??= crypto.randomUUID();
+    submitting.current = true;
+    setReceived(null);
     setSaving(true);
     try {
-      const result = await post<ReceivedPurchase>(
-        "/purchases/receive",
-        {
-          supplierId: selectedSupplierId,
-          purchaseDate,
-          reference,
-          notes,
-          items: cart.map(({ productId, quantity, unitPrice }) => ({
-            productId,
+      let items = cart;
+      if (productName) {
+        let selected = product;
+        if (!selected) {
+          if (!canDefineProduct)
+            throw new Error(
+              "You do not have permission to add a new product model.",
+            );
+          const created = await post<CatalogProduct>("/products", {
+            typeId: productTypeId,
+            name: productName,
+            category: productName,
+            model: model.trim(),
+            unit: "pcs",
+            warrantyMonths: Number(warrantyMonths),
+          });
+          selected = created;
+          setCreatedProducts((products) => [...products, created]);
+        }
+        if (items.some((item) => item.productId === selected.id))
+          throw new Error(
+            "This model already has a pending purchase. Remove its pending line before changing it.",
+          );
+        items = [
+          ...items,
+          {
+            productId: selected.id,
+            name: selected.name,
+            model: selected.model,
+            typeName: selected.type.name,
+            capacityAh: selected.capacityAh,
+            voltage: selected.voltage,
+            specifications: selected.specifications,
+            warrantyMonths: selected.warrantyMonths ?? 0,
             quantity,
             unitPrice,
-          })),
-          paidAmount: paid,
-          ...(cents(paid) > BigInt(0)
-            ? {
-                paymentAccountId:
-                  paymentAccountId || options.data?.paymentAccounts[0]?.id,
-              }
-            : {}),
-        },
-        { "Idempotency-Key": requestKey.current },
-      );
+          },
+        ];
+        // Keep the exact pending items for a safe retry if receiving fails.
+        setCart(items);
+        selectProductName("");
+        setQuantity(0);
+        setUnitPrice("");
+      }
+      const body = {
+        supplierId: selectedSupplierId,
+        purchaseDate,
+        reference,
+        items: items.map(({ productId, quantity, unitPrice }) => ({
+          productId,
+          quantity,
+          unitPrice,
+        })),
+        paidAmount: paid,
+        ...(cents(paid) > BigInt(0)
+          ? {
+              paymentAccountId: options.data?.paymentAccounts.find(
+                (account) => account.paymentMethod === "CASH",
+              )?.id,
+            }
+          : {}),
+      };
+      const serialized = JSON.stringify(body);
+      if (!requestKey.current || requestBody.current !== serialized) {
+        requestKey.current = crypto.randomUUID();
+        requestBody.current = serialized;
+      }
+      const result = await post<ReceivedPurchase>("/purchases/receive", body, {
+        "Idempotency-Key": requestKey.current,
+      });
       setReceived(result);
+      setConfirmedItems(items);
       setCart([]);
-      setPaymentType("due");
+      setPaymentType("full");
       setPartialPaid("");
       setReference("");
-      setNotes("");
       requestKey.current = null;
+      requestBody.current = "";
       setRevision((value) => value + 1);
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
-          : "Purchase সেভ করা যায়নি। আবার চেষ্টা করুন।",
+          : "Could not confirm purchase. Please retry.",
       );
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   }
@@ -335,11 +421,16 @@ export function PurchasesView({
             role="status"
             className="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800"
           >
-            Purchase {received.number} সেভ হয়েছে। {received.quantity} pcs স্টকে
-            যোগ হয়েছে।{" "}
-            <Link className="font-semibold underline" href="/inventory">
-              Inventory / Stock দেখুন
-            </Link>
+            Successful
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Dismiss purchase confirmation"
+              onClick={() => setReceived(null)}
+            >
+              <X />
+            </Button>
           </div>
         ) : null}
         {error || loadError || moduleError ? (
@@ -348,6 +439,17 @@ export function PurchasesView({
             className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-700"
           >
             <span>{error || loadError || moduleError}</span>
+            {error ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Dismiss purchase error"
+                onClick={() => setError("")}
+              >
+                <X />
+              </Button>
+            ) : null}
             {loadError ? (
               <Button
                 variant="outline"
@@ -460,35 +562,33 @@ export function PurchasesView({
           </div>
         </Panel>
       ) : (
-        <form onSubmit={receive} autoComplete="off">
+        <form onSubmit={confirmPurchase} autoComplete="off">
           <nav className="purchase-mobile-tabs" aria-label="Purchase sections">
-            {["Details", `Items (${cart.length})`, "Payment"].map(
-              (label, index) => (
-                <Button
-                  key={index}
-                  type="button"
-                  size="sm"
-                  variant={mobileSection === index ? "default" : "outline"}
-                  aria-pressed={mobileSection === index}
-                  onClick={() => {
-                    formGrid.current
-                      ?.querySelectorAll<HTMLElement>(
-                        ".purchase-details, .purchase-items, .erp-form-side",
-                      )
-                      [index]?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "nearest",
-                        inline: "start",
-                      });
-                  }}
-                >
-                  {label}
-                </Button>
-              ),
-            )}
+            {["Details", "Recent Purchases", "Payment"].map((label, index) => (
+              <Button
+                key={index}
+                type="button"
+                size="sm"
+                variant={mobileSection === index ? "default" : "outline"}
+                aria-pressed={mobileSection === index}
+                onClick={() => {
+                  formGrid.current
+                    ?.querySelectorAll<HTMLElement>(
+                      ".purchase-details, .purchase-items, .erp-form-side",
+                    )
+                    [index]?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "nearest",
+                      inline: "start",
+                    });
+                }}
+              >
+                {label}
+              </Button>
+            ))}
           </nav>
           <fieldset
-            disabled={saving || adding || loading || options.loading}
+            disabled={saving || loading || options.loading}
             className="purchase-fieldset"
           >
             <legend className="sr-only">Purchase receiving</legend>
@@ -544,7 +644,7 @@ export function PurchasesView({
                             setProductTypeId(event.target.value);
                             setSupplierId("");
                             selectProductName("");
-                            setQuantity(1);
+                            setQuantity(0);
                             setUnitPrice("");
 
                             setError("");
@@ -558,64 +658,94 @@ export function PurchasesView({
                           ))}
                         </select>
                       </Field>
-                      <Field
-                        label="Supplier"
-                        required
-                        className="purchase-supplier-field"
-                      >
-                        <select
-                          aria-label="Purchase supplier"
-                          value={selectedSupplierId}
-                          onChange={(event) =>
-                            setSupplierId(event.target.value)
-                          }
-                          required
-                        >
-                          <option value="">
-                            {!productTypeId
-                              ? "আগে Product Category নির্বাচন করুন"
-                              : filteredSuppliers.length
-                                ? "সাপ্লায়ার নির্বাচন করুন"
-                                : "এই ক্যাটাগরিতে সাপ্লায়ার নেই"}
-                          </option>
-                          {filteredSuppliers.map((supplier) => (
-                            <option key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                              {supplier.company ? " · " + supplier.company : ""}
+                      <div className="purchase-supplier-field purchase-quick-field">
+                        <Field label="Supplier" required>
+                          <select
+                            aria-label="Purchase supplier"
+                            value={selectedSupplierId}
+                            onChange={(event) =>
+                              setSupplierId(event.target.value)
+                            }
+                            required
+                          >
+                            <option value="">
+                              {!productTypeId
+                                ? "আগে Product Category নির্বাচন করুন"
+                                : filteredSuppliers.length
+                                  ? "সাপ্লায়ার নির্বাচন করুন"
+                                  : "এই ক্যাটাগরিতে সাপ্লায়ার নেই"}
                             </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Product" className="purchase-product-field">
-                        <select
-                          aria-label="Purchase product"
-                          value={productName}
-                          disabled={!productTypeId || !hasProductOptions}
-                          onChange={(event) =>
-                            selectProductName(event.target.value)
+                            {filteredSuppliers.map((supplier) => (
+                              <option key={supplier.id} value={supplier.id}>
+                                {supplier.name}
+                                {supplier.company
+                                  ? " · " + supplier.company
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="purchase-quick-add"
+                          aria-label="Add Supplier"
+                          title="Add Supplier"
+                          disabled={
+                            !productTypeId ||
+                            preview ||
+                            !user?.permissions.includes("parties.suppliers")
                           }
+                          onClick={() => setQuickAdd("supplier")}
                         >
-                          <option value="">
-                            {!productTypeId
-                              ? "আগে পণ্যের ধরন নির্বাচন করুন"
-                              : !hasProductOptions
-                                ? "এই ধরনে কোনো পণ্য নেই"
-                                : "পণ্য নির্বাচন করুন"}
-                          </option>
-                          {productChoices.map((item) => (
-                            <option key={item.value} value={item.name}>
-                              {item.name}
+                          <Plus /> Add
+                        </Button>
+                      </div>
+                      <div className="purchase-product-field purchase-quick-field">
+                        <Field label="Product">
+                          <select
+                            aria-label="Purchase product"
+                            value={productName}
+                            disabled={!productTypeId || !hasProductOptions}
+                            onChange={(event) =>
+                              selectProductName(event.target.value)
+                            }
+                          >
+                            <option value="">
+                              {!productTypeId
+                                ? "আগে পণ্যের ধরন নির্বাচন করুন"
+                                : !hasProductOptions
+                                  ? "এই ধরনে কোনো পণ্য নেই"
+                                  : "পণ্য নির্বাচন করুন"}
                             </option>
-                          ))}
-                        </select>
-                      </Field>
+                            {productChoices.map((item) => (
+                              <option key={item.value} value={item.name}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="purchase-quick-add"
+                          aria-label="Add Product"
+                          title="Add Product"
+                          disabled={
+                            !productTypeId || preview || !canDefineProduct
+                          }
+                          onClick={() => setQuickAdd("product")}
+                        >
+                          <Plus /> Add
+                        </Button>
+                      </div>
                       <Field
-                        label="Model"
+                        label="Model Number"
                         required={individual}
                         className="purchase-model-field"
                       >
                         <input
-                          aria-label="Purchase product model"
+                          aria-label="Purchase product model number"
                           value={model}
                           maxLength={160}
                           disabled={!productName}
@@ -630,6 +760,7 @@ export function PurchasesView({
                           max={individual ? 500 : 10000}
                           step="1"
                           value={quantity || ""}
+                          placeholder="0"
                           onChange={(event) =>
                             setQuantity(Number(event.target.value))
                           }
@@ -647,21 +778,6 @@ export function PurchasesView({
                           value={unitPrice}
                           onChange={(event) => setUnitPrice(event.target.value)}
                           placeholder="0.00"
-                        />
-                      </Field>
-                      <Field label="Total (৳)" className="purchase-line-total">
-                        <input
-                          readOnly
-                          value={money(
-                            decimalAmount(
-                              cents(unitPrice) *
-                                BigInt(
-                                  Number.isInteger(quantity) && quantity > 0
-                                    ? quantity
-                                    : 0,
-                                ),
-                            ),
-                          )}
                         />
                       </Field>
                     </div>
@@ -704,163 +820,161 @@ export function PurchasesView({
                           maxLength={160}
                         />
                       </Field>
-                      <div className="purchase-capacity-field">
-                        {individual ? (
-                          <Field label="Capacity (Ah)" required>
-                            <input
-                              aria-label="Purchase product capacity"
-                              type="number"
-                              min="0.01"
-                              max="99999999.99"
-                              step="0.01"
-                              disabled={!productName}
-                              value={capacityAh}
-                              onChange={(event) =>
-                                setCapacityAh(event.target.value)
-                              }
-                            />
-                          </Field>
-                        ) : null}
-                      </div>
                       <Button
-                        type="button"
+                        type="submit"
                         className="purchase-add-button"
-                        onClick={addItem}
-                        disabled={options.loading || adding || !productName}
+                        disabled={
+                          saving ||
+                          loading ||
+                          preview ||
+                          !canReceive ||
+                          options.loading ||
+                          (!productName && !cart.length)
+                        }
                       >
-                        <Plus />
-                        {adding ? "Adding..." : "Add to List"}
+                        <>
+                          {saving ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : (
+                            <Plus />
+                          )}
+                          {saving ? "Confirming..." : "Confirm Purchase"}
+                        </>
                       </Button>
                     </div>
                   </div>
                 </Panel>
-                <Panel title="Purchase Items" className="purchase-items">
-                  <div className="purchase-cart-body">
+                <Panel title="Recent Purchases" className="purchase-items">
+                  <div
+                    className="purchase-cart-body"
+                    aria-busy={loading || recent.loading}
+                  >
                     <div className="erp-table-wrap">
-                      <table className="erp-table">
-                        <caption className="sr-only">Purchase items</caption>
+                      <table className="erp-table purchase-recent-table">
+                        <caption className="sr-only">
+                          Latest 10 confirmed purchases, newest first
+                        </caption>
                         <colgroup>
-                          {[32, 17, 8, 17, 18, 8].map((width, index) => (
-                            <col key={index} style={{ width: `${width}%` }} />
-                          ))}
+                          {[8, 9, 10, 9, 8, 12, 13, 6, 5, 10, 10].map(
+                            (width, index) => (
+                              <col key={index} style={{ width: width + "%" }} />
+                            ),
+                          )}
                         </colgroup>
                         <thead>
                           <tr>
                             {[
-                              "Product",
-                              "Type",
+                              "Date",
+                              "Supplier",
+                              "Company Name",
+                              "Challan No.",
+                              "Category",
+                              "পণ্যের নাম",
+                              "Model Number",
+                              "ওয়ারেন্টি",
                               "Qty",
-                              "Unit Price",
-                              "Total",
-                              "Action",
+                              "Unit Price (৳)",
+                              "Total (৳)",
                             ].map((label) => (
-                              <th key={label}>{label}</th>
+                              <th key={label} scope="col">
+                                {label}
+                              </th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {cartRows.map((item) => (
-                            <tr key={item.productId}>
-                              <td>
-                                <span
-                                  className="line-clamp-2"
-                                  title={item.name}
-                                >
-                                  {item.name}
-                                </span>
-                                {item.model ? (
-                                  <small className="block text-slate-500">
-                                    {item.model}
-                                  </small>
+                          {recent.data?.items.flatMap((purchase) =>
+                            purchase.items.map((item, index) => (
+                              <tr key={item.id}>
+                                {index === 0 ? (
+                                  <>
+                                    <td
+                                      data-label="Date"
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      {purchase.purchaseDate}
+                                    </td>
+                                    <td
+                                      data-label="Supplier"
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      {purchase.supplier.name}
+                                    </td>
+                                    <td
+                                      data-label="Company Name"
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      {purchase.supplier.company || "—"}
+                                    </td>
+                                    <td
+                                      data-label="Challan No."
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      {purchase.supplierReference || "—"}
+                                    </td>
+                                  </>
                                 ) : null}
-                              </td>
-                              <td>
-                                <span
-                                  className="line-clamp-2"
-                                  title={item.typeName}
-                                >
-                                  {item.typeName}
-                                </span>
-                              </td>
-                              <td>{item.quantity}</td>
-                              <td>{money(item.unitPrice)}</td>
-                              <td>
-                                {money(
-                                  decimalAmount(
-                                    cents(item.unitPrice) *
-                                      BigInt(item.quantity),
-                                  ),
-                                )}
-                              </td>
-                              <td>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label={`Remove ${item.name}`}
-                                  onClick={() =>
-                                    setCart(
-                                      cart.filter(
-                                        (row) =>
-                                          row.productId !== item.productId,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  <Trash2 />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
+                                <td data-label="Category">{item.typeName}</td>
+                                <td data-label="পণ্যের নাম">
+                                  <strong>{item.name}</strong>
+                                </td>
+                                <td data-label="Model Number">
+                                  {item.model.trim() || "N/A"}
+                                </td>
+                                <td data-label="ওয়ারেন্টি">
+                                  {item.warrantyMonths} মাস
+                                </td>
+                                <td data-label="Qty">{item.quantity}</td>
+                                <td data-label="Unit Price (৳)">
+                                  {money(item.unitPrice)}
+                                </td>
+                                <td data-label="Total (৳)">
+                                  {money(item.total)}
+                                </td>
+                              </tr>
+                            )),
+                          )}
                         </tbody>
                       </table>
                     </div>
-                    {!cart.length ? (
+                    {recent.error ? (
+                      <div
+                        className="erp-empty purchase-cart-empty purchase-recent-error"
+                        role="alert"
+                      >
+                        <PackageOpen size={26} strokeWidth={1.3} />
+                        <p>Recent purchases লোড করা যায়নি</p>
+                        <span>{recent.error}</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRevision((value) => value + 1)}
+                        >
+                          Retry recent purchases
+                        </Button>
+                      </div>
+                    ) : loading || recent.loading ? (
+                      <div
+                        className="erp-empty purchase-cart-empty"
+                        role="status"
+                      >
+                        <LoaderCircle className="animate-spin" />
+                        <p>Loading recent purchases...</p>
+                      </div>
+                    ) : !recent.data?.items.length ? (
                       <div
                         className="erp-empty purchase-cart-empty"
                         role="status"
                       >
                         <PackageOpen size={26} strokeWidth={1.3} />
-                        <p>কোনো পণ্য যোগ করা হয়নি</p>
+                        <p>এখনো কোনো Purchase নিশ্চিত করা হয়নি</p>
                         <span>
-                          পণ্য, quantity ও purchase price দিয়ে Add to List চাপুন।
+                          Confirm Purchase করলে সাম্প্রতিক কেনাকাটার তথ্য এখানে
+                          দেখা যাবে।
                         </span>
                       </div>
                     ) : null}
-                  </div>
-                  <div
-                    className="purchase-cart-pager"
-                    data-visible={cartPages > 1}
-                    aria-hidden={cartPages <= 1}
-                    inert={cartPages <= 1}
-                  >
-                    <span>
-                      {cart.length ? cartIndex * cartPageSize + 1 : 0}–
-                      {Math.min((cartIndex + 1) * cartPageSize, cart.length)} /{" "}
-                      {cart.length} items
-                    </span>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label="Previous cart page"
-                        disabled={cartIndex === 0}
-                        onClick={() => setCartPage(cartIndex - 1)}
-                      >
-                        <ChevronLeft />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label="Next cart page"
-                        disabled={cartIndex >= cartPages - 1}
-                        onClick={() => setCartPage(cartIndex + 1)}
-                      >
-                        <ChevronRight />
-                      </Button>
-                    </div>
                   </div>
                 </Panel>
               </div>
@@ -872,21 +986,27 @@ export function PurchasesView({
                   </h2>
                   <SummaryRows
                     rows={[
-                      ["Total Items", String(cart.length)],
+                      [
+                        "Total Items",
+                        String(summaryItems.length + (productName ? 1 : 0)),
+                      ],
                       [
                         "Total Quantity",
                         String(
-                          cart.reduce((sum, item) => sum + item.quantity, 0),
+                          summaryItems.reduce(
+                            (sum, item) => sum + item.quantity,
+                            productName ? quantity : 0,
+                          ),
                         ),
                       ],
-                      ["Subtotal", money(total)],
-                      ["Paid", money(paid)],
-                      ["Due", money(due)],
+                      ["Subtotal", money(summaryTotal)],
+                      ["Paid", money(summaryPaid)],
+                      ["Due", money(summaryDue)],
                     ]}
                   />
                   <div className="erp-summary-total">
                     <span>Grand Total</span>
-                    <span>{money(total)}</span>
+                    <span>{money(summaryTotal)}</span>
                   </div>
                 </Panel>
                 <Panel title="Payment Information" icon={CreditCard}>
@@ -897,82 +1017,54 @@ export function PurchasesView({
                         value={paymentType}
                         onChange={(event) => setPaymentType(event.target.value)}
                       >
+                        <option value="full" disabled={!canPay}>
+                          Full Payment
+                        </option>
                         <option value="due">Due</option>
                         {canPay ? (
                           <>
-                            <option value="full">Full Payment</option>
                             <option value="partial">Partial Payment</option>
                           </>
                         ) : null}
                       </select>
                     </Field>
-                    <div
-                      className="purchase-payment-area"
-                      data-payment-type={paymentType}
-                    >
-                      <fieldset
-                        className="purchase-payment-fields grid gap-4"
-                        disabled={paymentType === "due"}
-                        aria-hidden={paymentType === "due"}
-                        inert={paymentType === "due"}
-                      >
+                    {paymentType === "partial" ? (
+                      <fieldset className="purchase-payment-fields grid gap-4">
                         <Field label="Paid Amount (৳)" required>
                           <input
+                            aria-label="Purchase paid amount"
                             type="number"
                             min="0"
+                            max={total}
                             step="0.01"
-                            value={paid}
-                            readOnly={paymentType === "full"}
+                            value={partialPaid}
+                            placeholder="0.00"
                             onChange={(event) =>
                               setPartialPaid(event.target.value)
                             }
                             required
                           />
                         </Field>
-                        <Field label="Payment Method" required>
-                          <select
-                            value={
-                              paymentAccountId ||
-                              options.data?.paymentAccounts[0]?.id ||
-                              ""
-                            }
-                            onChange={(event) =>
-                              setPaymentAccountId(event.target.value)
-                            }
-                            required
-                          >
-                            {options.data?.paymentAccounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name}
-                              </option>
-                            ))}
-                          </select>
+                        <Field label="Due Amount (৳)">
+                          <input
+                            aria-label="Purchase due amount"
+                            readOnly
+                            disabled
+                            className="cursor-not-allowed bg-slate-50 text-slate-600"
+                            value={due}
+                          />
                         </Field>
-                      </fieldset>
-                      {paymentType === "due" ? (
                         <p className="purchase-payment-hint">
-                          ক্রয়মূল্য সাপ্লায়ারের বকেয়ায় যুক্ত হবে।
+                          মোট টাকা থেকে পরিশোধ বাদ দিয়ে বাকি টাকা কোম্পানির
+                          বকেয়ায় যোগ হবে।
                         </p>
-                      ) : null}
-                    </div>
+                      </fieldset>
+                    ) : paymentType === "due" ? (
+                      <p className="purchase-payment-hint">
+                        ক্রয়মূল্য সাপ্লায়ারের বকেয়ায় যুক্ত হবে।
+                      </p>
+                    ) : null}
                   </div>
-                </Panel>
-                <Panel
-                  title="Notes (Optional)"
-                  icon={ClipboardList}
-                  action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      title={notes || undefined}
-                      onClick={() => setNotesOpen(true)}
-                    >
-                      {notes ? "Edit Note" : "Add Note"}
-                    </Button>
-                  }
-                >
-                  <span className="sr-only">{notes || "No note added"}</span>
                 </Panel>
               </aside>
             </div>
@@ -982,62 +1074,25 @@ export function PurchasesView({
               UI preview: লগইন ছাড়া Purchase সেভ হবে না।
             </p>
           ) : null}
-          <div className="erp-form-actions">
-            <p className="text-xs text-slate-500">
-              কনফার্ম করলেই পণ্য স্টকে যুক্ত হবে।
-            </p>
-            <Button
-              type="submit"
-              className="erp-button"
-              disabled={
-                saving ||
-                loading ||
-                preview ||
-                !canReceive ||
-                !cart.length ||
-                options.loading
-              }
-            >
-              {saving ? <LoaderCircle className="animate-spin" /> : <Plus />}
-              {saving ? "Receiving..." : "Receive & Confirm"}
-            </Button>
-          </div>
         </form>
       )}
-      <Dialog.Root open={notesOpen} onOpenChange={setNotesOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
-          <Dialog.Content className="feature-dialog">
-            <Dialog.Title className="text-xl font-bold">
-              Purchase Notes
-            </Dialog.Title>
-            <Dialog.Description className="mt-2 text-xs text-slate-500">
-              ক্রয়ের সঙ্গে প্রয়োজনীয় নোট সংরক্ষণ করুন।
-            </Dialog.Description>
-            <div className="mt-5">
-              <Field label="Notes">
-                <textarea
-                  aria-label="Purchase notes"
-                  maxLength={2000}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="mt-5 flex justify-end">
-              <Dialog.Close asChild>
-                <Button type="button">Done</Button>
-              </Dialog.Close>
-            </div>
-            <Dialog.Close
-              aria-label="Close purchase notes"
-              className="absolute top-4 right-4"
-            >
-              <X size={19} />
-            </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      {quickAdd && selectedType ? (
+        <PurchaseQuickAdd
+          kind={quickAdd}
+          type={selectedType}
+          onClose={() => setQuickAdd(null)}
+          onProductSaved={(created) => {
+            setAddedProductNames((items) => [...items, created]);
+            selectProductName(created.name);
+            setRevision((value) => value + 1);
+          }}
+          onSupplierSaved={(created) => {
+            setAddedSuppliers((items) => [...items, created]);
+            setSupplierId(created.id);
+            setRevision((value) => value + 1);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
