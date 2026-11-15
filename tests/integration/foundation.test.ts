@@ -242,7 +242,7 @@ test("catalog writes require permission, valid fields, Origin, and CSRF", async 
   await owner.get("/api/v1/products?pageSize=101").expect(400);
 });
 
-test("public API requires the Cloudflare proxy secret while health remains available", async () => {
+test("public API requires the proxy secret while health remains available", async () => {
   const previous = process.env.API_PROXY_SECRET;
   const secret = randomBytes(32).toString("hex");
   let proxyApp: INestApplication | undefined;

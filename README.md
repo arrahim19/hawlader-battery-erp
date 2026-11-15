@@ -1,6 +1,6 @@
 # Hawlader Battery ERP
 
-Cloudflare hosting setup: [deployment guide](docs/CLOUDFLARE.md).
+Planned hosting target: Vercel. Deployment configuration is not yet set up.
 
 ERP and POS for Hawlader Battery House, Bangladesh: individually tracked batteries, auto parts, purchasing, sales, warranty replacements, accounts, and reporting.
 

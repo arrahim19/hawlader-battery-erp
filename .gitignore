@@ -7,10 +7,6 @@ dist/
 !.env.local.example
 .local/
 .tmp/
-.wrangler/
-.dev.vars
-.dev.vars.*
-apps/web/out/
 coverage/
 playwright-report/
 test-results/
