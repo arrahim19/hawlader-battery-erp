@@ -8,6 +8,11 @@
       "root": "apps/api",
       "framework": "nestjs",
       "entrypoint": "src/main.ts",
+      "functions": {
+        "src/main.ts": {
+          "includeFiles": "../../node_modules/{argon2,node-gyp-build,@phc/format}/**"
+        }
+      },
       "installCommand": "cd ../.. && npm ci",
       "buildCommand": "cd ../.. && npm run db:generate && npm run build --workspace @hawlader/api"
     },

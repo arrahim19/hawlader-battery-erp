@@ -15,11 +15,15 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import argon2 from "argon2";
+import { createRequire } from "node:module";
 import type { Request, Response } from "express";
 import type { CurrentUser } from "../../../packages/api-client/src";
 import { DatabaseService } from "./database.service";
 import { settings } from "./config";
+
+// Load the native CommonJS package directly; Vercel's generated import shim
+// does not preserve Argon2's hash/verify exports.
+const argon2 = createRequire(__filename)("argon2") as typeof import("argon2");
 
 export const Public = () => SetMetadata("public", true);
 export const Permissions = (...permissions: string[]) =>
