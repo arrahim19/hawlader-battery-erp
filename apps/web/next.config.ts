@@ -8,6 +8,8 @@ const config: NextConfig = {
   poweredByHeader: false,
   turbopack: { root: path.resolve(__dirname, "../..") },
   async rewrites() {
+    // Vercel Services routes API requests before they reach Next.js.
+    if (process.env.VERCEL === "1") return [];
     return [
       {
         source: "/api/v1/:path*",

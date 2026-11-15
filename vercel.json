@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "api": {
+      "root": "apps/api",
+      "framework": "nestjs",
+      "entrypoint": "src/main.ts",
+      "installCommand": "cd ../.. && npm ci",
+      "buildCommand": "cd ../.. && npm run db:generate && npm run build --workspace @hawlader/api"
+    },
+    "web": {
+      "root": "apps/web",
+      "framework": "nextjs",
+      "installCommand": "cd ../.. && npm ci",
+      "buildCommand": "npm run build"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/:path*",
+      "destination": { "service": "web" }
+    }
+  ]
+}

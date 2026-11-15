@@ -1,6 +1,6 @@
 # Hawlader Battery ERP
 
-Planned hosting target: Vercel. Deployment configuration is not yet set up.
+Vercel hosting setup: [deployment guide](docs/VERCEL.md).
 
 ERP and POS for Hawlader Battery House, Bangladesh: individually tracked batteries, auto parts, purchasing, sales, warranty replacements, accounts, and reporting.
 
@@ -126,7 +126,7 @@ node scripts/validate-phase1.mjs
 
 This checks local Markdown links, required deliverables, JSON references, critical command coverage, and workflow contract consistency. It does **not** execute ERP business operations or prove transaction safety. Business integration, concurrency, security, browser, and printer checks remain planned in the [test plan](docs/TEST_PLAN.md).
 
-Phase 1 contract checks remain useful but do not establish business workflow correctness. No deployment is configured in this local foundation release.
+Phase 1 contract checks remain useful but do not establish business workflow correctness. Vercel deployment configuration is included; live deployment still requires environment settings and database preparation in the [deployment guide](docs/VERCEL.md).
 
 ## Next phase
 
