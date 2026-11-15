@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "env": {
+    "NODE_OPTIONS": "--experimental-require-module"
+  },
   "services": {
     "api": {
       "root": "apps/api",
@@ -15,6 +18,13 @@
       "buildCommand": "npm run build"
     }
   },
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/dashboard",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",

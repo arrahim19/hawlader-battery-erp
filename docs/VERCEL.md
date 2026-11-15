@@ -5,6 +5,7 @@ in `apps/web` and the NestJS API in `apps/api`. Requests under `/api/` reach the
 API with their original path, including `/api/v1`; all other paths reach the
 frontend. Both use the same public domain for session cookies and CSRF checks.
 The API uses Vercel's NestJS runtime, not a container.
+The root address redirects to `/dashboard` at the deployment level.
 
 ## Import from GitHub
 
@@ -33,6 +34,10 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
 Keep the same `CSRF_SECRET` across redeployments to preserve existing sessions.
+The configuration supplies `NODE_OPTIONS=--experimental-require-module` for the
+runtime. NestJS 12 is ESM-only, while this API compiles to CommonJS; Vercel
+disables Node's `require(esm)` support by default, so this flag is required.
+If `NODE_OPTIONS` is also set in the dashboard, include this flag in that value.
 Do not add the obsolete `API_PROXY_SECRET` or `INTERNAL_API_URL` settings to this
 deployment. The browser calls the API directly through Vercel's same-domain
 service routing. Leave `API_HOST` unset. Vercel supplies `NODE_ENV=production`.
