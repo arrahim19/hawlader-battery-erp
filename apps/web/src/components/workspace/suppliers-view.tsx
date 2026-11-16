@@ -10,7 +10,6 @@ import {
   ChevronRight,
   ClipboardList,
   CreditCard,
-  Eye,
   Filter,
   LoaderCircle,
   Plus,
@@ -20,7 +19,6 @@ import {
   ShieldCheck,
   ShoppingCart,
   Truck,
-  UserRoundCheck,
 } from "lucide-react";
 import {
   EmptyTable,
@@ -59,7 +57,6 @@ const columns = [
   "কোম্পানি / ব্র্যান্ড",
   "মোবাইল",
   "ঠিকানা",
-  "স্ট্যাটাস",
   "অ্যাকশন",
 ];
 
@@ -302,70 +299,6 @@ function SupplierForm({
   );
 }
 
-function SupplierCategoryForm({
-  supplier,
-  onSaved,
-}: {
-  supplier: SupplierRecord;
-  onSaved: () => void;
-}) {
-  const categories = useCatalogResource<{ id: string; name: string }[]>(
-    "/suppliers/product-types",
-    0,
-  );
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    const productTypeId = String(
-      new FormData(event.currentTarget).get("productTypeId") ?? "",
-    );
-    setSaving(true);
-    setError("");
-    try {
-      await post("/suppliers/" + supplier.id + "/category", { productTypeId });
-      onSaved();
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "ক্যাটাগরি সেভ করা যায়নি।",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-  return (
-    <form onSubmit={save} className="mt-4 grid gap-3">
-      <Field label="Product Category" required>
-        <select
-          name="productTypeId"
-          aria-label="Supplier product category"
-          defaultValue={supplier.productTypeId ?? ""}
-          required
-          disabled={saving || categories.loading}
-        >
-          <option value="" disabled>
-            ক্যাটাগরি নির্বাচন করুন
-          </option>
-          {categories.data?.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {error || categories.error ? (
-        <p role="alert" className="text-xs text-red-600">
-          {error || categories.error}
-        </p>
-      ) : null}
-      <Button type="submit" disabled={saving || !categories.data?.length}>
-        {saving ? "Saving..." : "Save Category"}
-      </Button>
-    </form>
-  );
-}
-
 export function SupplierView({
   preview,
   view = "",
@@ -380,7 +313,6 @@ export function SupplierView({
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<SupplierRecord | null>(null);
   const [deleting, setDeleting] = useState<SupplierRecord | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
@@ -395,7 +327,6 @@ export function SupplierView({
         headers: { "X-CSRF-Token": await csrf() },
         body: JSON.stringify({ confirmed: true }),
       });
-      setSelectedId(null);
       setDeleting(null);
       setPage(1);
       setRevision((value) => value + 1);
@@ -444,7 +375,6 @@ export function SupplierView({
   const list = result?.key === key ? result.data : null;
   const error = failure?.key === key ? failure.message : "";
   const loading = !preview && !list && !error;
-  const selected = list?.items.find((supplier) => supplier.id === selectedId);
   const current = view === "new" ? "new" : "list";
   const pages = Math.max(1, Math.ceil((list?.total ?? 0) / 10));
   return (
@@ -461,33 +391,20 @@ export function SupplierView({
           { id: "ledger", label: "Supplier Ledger", icon: ClipboardList },
         ]}
       />
-      <div className="erp-stats">
+      <div className="erp-stats supplier-stats">
         <StatCard
           label="Total Suppliers"
           value={list ? String(list.summary.total) : "—"}
           icon={Truck}
         />
         <StatCard
-          label="Active Suppliers"
-          value={list ? String(list.summary.active) : "—"}
-          icon={UserRoundCheck}
-          tone="blue"
-        />
-        <StatCard
-          label="Inactive Suppliers"
-          value={list ? String(list.summary.total - list.summary.active) : "—"}
-          icon={CreditCard}
-          tone="orange"
-        />
-        <StatCard
-          label="Total Payable"
+          label="Total Due"
           value={money(preview ? null : data?.financials?.supplierDues)}
-          caption="সকল সময়ের বকেয়া"
           icon={ShieldCheck}
           tone="purple"
         />
         <StatCard
-          label="Purchases (Selected Period)"
+          label="Purchases Amount"
           value={money(preview ? null : data?.financials?.todayPurchases)}
           icon={ShoppingCart}
         />
@@ -555,7 +472,7 @@ export function SupplierView({
               </Button>
             </form>
           </Panel>
-          <div className="master-detail-layout">
+          <div className="supplier-list-layout">
             <Panel>
               {loading ? (
                 <p
@@ -579,44 +496,23 @@ export function SupplierView({
                     </thead>
                     <tbody>
                       {list.items.map((supplier, index) => (
-                        <tr
-                          key={supplier.id}
-                          className={
-                            selectedId === supplier.id
-                              ? "bg-green-50"
-                              : undefined
-                          }
-                        >
+                        <tr key={supplier.id}>
                           <td>{(page - 1) * 10 + index + 1}</td>
                           <td>
                             {supplier.productType?.name || "ক্যাটাগরি সেট করুন"}
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="text-left font-semibold text-green-800 hover:underline"
-                              onClick={() => setSelectedId(supplier.id)}
-                            >
+                            <span className="font-semibold text-green-800">
                               {supplier.name}
-                            </button>
+                            </span>
                           </td>
                           <td>{supplier.company || "—"}</td>
                           <td>{supplier.phone || "—"}</td>
                           <td className="max-w-64 break-words whitespace-normal">
                             {supplier.address || "—"}
                           </td>
-                          <td>{supplier.active ? "Active" : "Inactive"}</td>
                           <td>
                             <div className="flex gap-1">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`View ${supplier.name}`}
-                                onClick={() => setSelectedId(supplier.id)}
-                              >
-                                <Eye />
-                              </Button>
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -683,35 +579,6 @@ export function SupplierView({
                   </Button>
                 </div>
               </div>
-            </Panel>
-            <Panel title="সাপ্লায়ারের বিস্তারিত" className="erp-details">
-              {selected ? (
-                <>
-                  <dl>
-                    {[
-                      ["নাম", selected.name],
-                      ["কোম্পানি / ব্র্যান্ড", selected.company],
-                      ["মোবাইল", selected.phone],
-                      ["ঠিকানা", selected.address],
-                      ["স্ট্যাটাস", selected.active ? "Active" : "Inactive"],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <dt>{label}</dt>
-                        <dd className="break-words">{value || "—"}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <SupplierCategoryForm
-                    key={selected.id + (selected.productTypeId ?? "")}
-                    supplier={selected}
-                    onSaved={() => setRevision((value) => value + 1)}
-                  />
-                </>
-              ) : (
-                <p className="erp-details-hint">
-                  বিস্তারিত দেখতে তালিকা থেকে একটি সাপ্লায়ার বাছাই করুন।
-                </p>
-              )}
             </Panel>
           </div>
         </>

@@ -15,7 +15,9 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       trackingKind,
     };
     const submitted: Record<string, unknown>[] = [];
-    let receipt: { items: object[]; paidAmount: string } | undefined;
+    let receipt:
+      | { items: object[]; paidAmount: string; transportAmount: string }
+      | undefined;
     const receiptKeys: string[] = [];
     let confirmed = false;
     await page.route("**/api/v1/**", async (route) => {
@@ -126,6 +128,7 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
               status: "RECEIVED",
               total: "150000.00",
               quantity: 15,
+              transportAmount: receipt!.transportAmount,
               paid: receipt!.paidAmount,
               due: (150000 - Number(receipt!.paidAmount)).toFixed(2),
             },
@@ -155,6 +158,7 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
     await expect(page.getByLabel("Purchase product unit")).toHaveCount(0);
     const warranty = page.getByLabel("Purchase product warranty");
+    await page.getByLabel("Purchase transport amount").fill("250.50");
     await warranty.fill("06");
     await expect(warranty).toHaveValue("6");
     await expect(page.getByLabel("Purchase quantity")).toHaveValue("");
@@ -251,6 +255,7 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       page.getByRole("button", { name: "Confirm Purchase", exact: true }),
     ).toBeDisabled();
     expect(submitted).toHaveLength(1);
+    expect(receipt?.transportAmount).toBe("250.50");
     expect(receipt?.paidAmount).toBe(
       trackingKind === "BATTERY_UNIT" ? "150000.00" : "50000.00",
     );

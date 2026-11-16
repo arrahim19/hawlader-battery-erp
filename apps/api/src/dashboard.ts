@@ -202,55 +202,35 @@ export class DashboardService {
       },
     };
     if (finance) {
-      const [lines, allBalances, receipts, cash, trend, stockValue] =
-        await Promise.all([
-          this.db.journalLine.findMany({
-            where: {
-              entry: { postedAt: { gte: range.start, lt: range.end } },
-              account: { code: { in: ["4100", "5100"] } },
-            },
-            select: {
-              debit: true,
-              credit: true,
-              account: { select: { code: true } },
-            },
-          }),
-          this.db.journalLine.groupBy({
-            by: ["accountId", "customerId", "supplierId"],
-            where: { account: { code: { in: ["1200", "2100"] } } },
-            _sum: { debit: true, credit: true },
-          }),
-          this.db.purchaseReceiptItem.aggregate({
-            _sum: { netCost: true },
-            where: {
-              receipt: {
-                receivedDate: {
-                  gte: new Date(range.from),
-                  lte: new Date(range.to),
-                },
+      const [allBalances, receipts, cash, stockValue] = await Promise.all([
+        this.db.journalLine.groupBy({
+          by: ["accountId", "customerId", "supplierId"],
+          where: { account: { code: { in: ["1200", "2100"] } } },
+          _sum: { debit: true, credit: true },
+        }),
+        this.db.purchaseReceiptItem.aggregate({
+          _sum: { netCost: true },
+          where: {
+            receipt: {
+              purchase: { status: { not: "CANCELLED" } },
+              receivedDate: {
+                gte: new Date(range.from),
+                lte: new Date(range.to),
               },
             },
-          }),
-          this.db.payment.aggregate({
-            _sum: { amount: true },
-            where: {
-              direction: "INCOMING",
-              method: "CASH",
-              occurredAt: { gte: range.start, lt: range.end },
-              reversedPaymentId: null,
-              reversal: { is: null },
-            },
-          }),
-          this.db.$queryRaw<
-            { date: string; amount: string; grossProfit: string }[]
-          >`
-          SELECT to_char(e."postedAt" AT TIME ZONE 'Asia/Dhaka','YYYY-MM-DD') AS date,
-            SUM(CASE WHEN a.code='4100' THEN l.credit-l.debit ELSE 0 END)::text AS amount,
-            SUM(l.credit-l.debit)::text AS "grossProfit"
-          FROM "JournalLine" l JOIN "JournalEntry" e ON e.id=l."entryId" JOIN "Account" a ON a.id=l."accountId"
-          WHERE a.code IN ('4100','5100') AND e."postedAt">=${range.start} AND e."postedAt"<${range.end}
-          GROUP BY 1 ORDER BY 1`,
-          this.db.$queryRaw<{ amount: string }[]>`
+          },
+        }),
+        this.db.payment.aggregate({
+          _sum: { amount: true },
+          where: {
+            direction: "INCOMING",
+            method: "CASH",
+            occurredAt: { gte: range.start, lt: range.end },
+            reversedPaymentId: null,
+            reversal: { is: null },
+          },
+        }),
+        this.db.$queryRaw<{ amount: string }[]>`
           SELECT COALESCE(SUM(v.amount), 0)::text AS amount FROM (
             SELECT s."unitCost" AS amount
             FROM "BatteryUnit" u JOIN "StockBatch" s ON s.id=u."batchId"
@@ -265,19 +245,12 @@ export class DashboardService {
             WHERE p.active=true AND t."trackingKind"='QUANTITY'
               AND b.location='SHOP' AND b.bucket='AVAILABLE' AND b.quantity>0
           ) v`,
-        ]);
+      ]);
       const accountIds = await this.db.account.findMany({
         where: { code: { in: ["1200", "2100"] } },
         select: { id: true, code: true },
       });
       const codes = new Map(accountIds.map((a) => [a.id, a.code]));
-      let revenue = new Prisma.Decimal(0);
-      let cogs = new Prisma.Decimal(0);
-      for (const line of lines) {
-        if (line.account.code === "4100")
-          revenue = revenue.add(line.credit.sub(line.debit));
-        else cogs = cogs.add(line.debit.sub(line.credit));
-      }
       let customerDues = new Prisma.Decimal(0);
       let supplierDues = new Prisma.Decimal(0);
       for (const balance of allBalances) {
@@ -292,7 +265,202 @@ export class DashboardService {
             Prisma.Decimal.max(0, credit.sub(debit)),
           );
       }
+      const transportLines = await this.db.journalLine.findMany({
+        where: {
+          account: { code: "5200", kind: "EXPENSE" },
+          entry: {
+            postedAt: { gte: range.start, lt: range.end },
+            reversal: { is: null },
+            OR: [
+              { reversedEntryId: null },
+              { posting: { kind: "TRANSACTION_RESTORED" } },
+            ],
+          },
+        },
+        select: {
+          id: true,
+          debit: true,
+          credit: true,
+          entry: {
+            select: {
+              postedAt: true,
+              reason: true,
+              posting: {
+                select: {
+                  purchaseReceipt: {
+                    select: {
+                      purchase: { select: { supplierReference: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ entry: { postedAt: "desc" } }, { id: "desc" }],
+      });
+      const companyPayments = await this.db.payment.findMany({
+        where: {
+          supplierId: { not: null },
+          reversedPaymentId: null,
+          reversal: { is: null },
+        },
+        select: {
+          id: true,
+          occurredAt: true,
+          amount: true,
+          direction: true,
+          supplier: { select: { name: true, company: true } },
+          allocations: {
+            where: { reversedAllocationId: null, reversal: { is: null } },
+            select: {
+              purchaseReceipt: {
+                select: { purchase: { select: { supplierReference: true } } },
+              },
+            },
+          },
+        },
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        take: 100,
+      });
+      const companyTotals = await this.db.payment.aggregate({
+        where: {
+          supplierId: { not: null },
+          reversedPaymentId: null,
+          reversal: { is: null },
+        },
+        _sum: { amount: true },
+        _count: { _all: true },
+      });
+      // Accounts shows the current sales book across all invoice dates. A
+      // cancellation posted today must not become negative income for today
+      // while its original invoice belonged to an earlier day.
+      const currentSalesLines = await this.db.journalLine.findMany({
+        where: {
+          account: { code: { in: ["4100", "5100"] } },
+          entry: {
+            posting: {
+              OR: [
+                {
+                  sale: {
+                    status: {
+                      in: ["CONFIRMED", "PARTIALLY_RETURNED", "RETURNED"],
+                    },
+                  },
+                },
+                {
+                  salesReturn: {
+                    sale: {
+                      status: {
+                        in: ["CONFIRMED", "PARTIALLY_RETURNED", "RETURNED"],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        select: {
+          debit: true,
+          credit: true,
+          account: { select: { code: true } },
+          entry: {
+            select: {
+              posting: {
+                select: {
+                  sale: { select: { soldAt: true } },
+                  salesReturn: {
+                    select: { sale: { select: { soldAt: true } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const daily = new Map<
+        string,
+        { amount: Prisma.Decimal; grossProfit: Prisma.Decimal }
+      >();
+      let revenue = new Prisma.Decimal(0),
+        cogs = new Prisma.Decimal(0);
+      let salesIncome = new Prisma.Decimal(0),
+        salesCost = new Prisma.Decimal(0);
+      for (const line of currentSalesLines) {
+        const income =
+          line.account.code === "4100"
+            ? line.credit.sub(line.debit)
+            : new Prisma.Decimal(0);
+        const cost =
+          line.account.code === "5100"
+            ? line.debit.sub(line.credit)
+            : new Prisma.Decimal(0);
+        salesIncome = salesIncome.add(income);
+        salesCost = salesCost.add(cost);
+        const soldAt =
+          line.entry.posting.sale?.soldAt ??
+          line.entry.posting.salesReturn?.sale.soldAt;
+        if (soldAt && soldAt >= range.start && soldAt < range.end) {
+          revenue = revenue.add(income);
+          cogs = cogs.add(cost);
+          const date = dhakaDate(soldAt),
+            point = daily.get(date) ?? {
+              amount: new Prisma.Decimal(0),
+              grossProfit: new Prisma.Decimal(0),
+            };
+          point.amount = point.amount.add(income);
+          point.grossProfit = point.grossProfit.add(income).sub(cost);
+          daily.set(date, point);
+        }
+      }
+      const trend = [...daily]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, point]) => ({
+          date,
+          amount: point.amount.toFixed(2),
+          grossProfit: point.grossProfit.toFixed(2),
+        }));
       result.financials = {
+        salesIncome: salesIncome.toFixed(2),
+        salesProfit: salesIncome.sub(salesCost).toFixed(2),
+        companyTransactionCount: companyTotals._count._all,
+        companyTransactionAmount: (
+          companyTotals._sum.amount ?? new Prisma.Decimal(0)
+        ).toFixed(2),
+        companyTransactions: companyPayments.map((payment) => ({
+          id: payment.id,
+          date: dhakaDate(payment.occurredAt),
+          company: payment.supplier!.company?.trim() || payment.supplier!.name,
+          challanNumber:
+            [
+              ...new Set(
+                payment.allocations
+                  .map(
+                    (allocation) =>
+                      allocation.purchaseReceipt?.purchase.supplierReference,
+                  )
+                  .filter(Boolean),
+              ),
+            ].join(", ") || null,
+          type: payment.direction === "OUTGOING" ? "Payment" : "Refund",
+          amount: payment.amount.toFixed(2),
+        })),
+        transportExpenses: transportLines
+          .reduce(
+            (sum, line) => sum.add(line.debit).sub(line.credit),
+            new Prisma.Decimal(0),
+          )
+          .toFixed(2),
+        transportTransactions: transportLines.map((line) => ({
+          id: line.id,
+          date: dhakaDate(line.entry.postedAt),
+          description: line.entry.reason ?? "Purchase transport",
+          challanNumber:
+            line.entry.posting.purchaseReceipt?.purchase.supplierReference ??
+            null,
+          amount: line.debit.sub(line.credit).toFixed(2),
+        })),
         availableStockPurchaseValue: new Prisma.Decimal(
           stockValue[0]?.amount ?? 0,
         ).toFixed(2),

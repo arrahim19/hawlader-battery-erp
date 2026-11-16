@@ -218,10 +218,12 @@ export function DetailPanel({
   title,
   rows,
   footer,
+  showHint = true,
 }: {
   title: string;
   rows: string[];
   footer?: ReactNode;
+  showHint?: boolean;
 }) {
   return (
     <Panel title={title} className="erp-details">
@@ -235,9 +237,11 @@ export function DetailPanel({
           </div>
         ))}
       </dl>
-      <p className="erp-details-hint">
-        বিস্তারিত দেখতে তালিকা থেকে একটি রেকর্ড বাছাই করুন।
-      </p>
+      {showHint ? (
+        <p className="erp-details-hint">
+          বিস্তারিত দেখতে তালিকা থেকে একটি রেকর্ড বাছাই করুন।
+        </p>
+      ) : null}
       {footer ? <div className="erp-detail-footer">{footer}</div> : null}
     </Panel>
   );

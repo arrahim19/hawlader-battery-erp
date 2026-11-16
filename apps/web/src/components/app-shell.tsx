@@ -9,7 +9,6 @@ import {
   Bell,
   Boxes,
   CalendarDays,
-  ChartNoAxesCombined,
   ChevronDown,
   ClipboardList,
   CreditCard,
@@ -41,6 +40,12 @@ export const navigation = [
     permission: "dashboard.read",
   },
   {
+    label: "Sales",
+    href: "/sales",
+    icon: ShoppingCart,
+    permission: "sales.manage",
+  },
+  {
     label: "Purchase",
     href: "/purchases",
     icon: ShoppingBag,
@@ -51,12 +56,6 @@ export const navigation = [
     href: "/inventory",
     icon: Boxes,
     permission: "inventory.read",
-  },
-  {
-    label: "Sales",
-    href: "/sales",
-    icon: ShoppingCart,
-    permission: "sales.manage",
   },
   {
     label: "Replacement",
@@ -81,12 +80,6 @@ export const navigation = [
     href: "/accounts",
     icon: CreditCard,
     permission: "finance.read",
-  },
-  {
-    label: "Reports",
-    href: "/reports",
-    icon: ChartNoAxesCombined,
-    permission: "reports.operational",
   },
   {
     label: "Users & Permissions",
@@ -131,6 +124,7 @@ export function AppShell({
   children,
   preview = false,
   previewModule = "dashboard",
+  previewView = "",
 }: {
   children: ReactNode;
   preview?: boolean;
@@ -151,7 +145,14 @@ export function AppShell({
       : (navigation.find((item) => item.href === "/" + current)?.label ??
         "Workspace");
   const visible = navigation.filter(
-    (item) => preview || user?.permissions.includes(item.permission),
+    (item) =>
+      preview ||
+      user?.permissions.includes(item.permission) ||
+      (item.href === "/recycle-bin" &&
+        user?.permissions.includes("transactions.reverse") &&
+        ["sales.manage", "purchases.manage"].some((p) =>
+          user?.permissions.includes(p),
+        )),
   );
   const displayName = preview ? "Admin" : (user?.name ?? "Account");
   const initials = preview
@@ -187,19 +188,14 @@ export function AppShell({
       <Link
         href={workspaceHref("dashboard", "", preview)}
         className="brand"
-        aria-label="Hawlader Battery ERP dashboard"
+        aria-label="Howlader Battery dashboard"
         onClick={() => setOpen(false)}
       >
         <span className="brand-icon">
           <BrandMark />
         </span>
         <span>
-          <strong>
-            Hawlader
-            <br />
-            Battery ERP
-          </strong>
-          <small>Battery &amp; Auto Parts Management</small>
+          <strong>Howlader Battery</strong>
         </span>
       </Link>
       <nav aria-label="Main navigation" className="sidebar-nav">
@@ -243,6 +239,12 @@ export function AppShell({
         "app-shell",
         current === "dashboard" && "dashboard-shell",
         current === "purchases" && "purchase-shell",
+        current === "accounts" && "accounts-shell",
+        current === "sales" &&
+          ["", "new"].includes(
+            preview ? previewView : (pathname.split("/")[2] ?? ""),
+          ) &&
+          "sales-entry-shell",
         ["inventory", "products"].includes(current) && "inventory-shell",
         collapsed && "sidebar-collapsed",
       )}
@@ -395,7 +397,7 @@ export function AppShell({
         <main id="main-content" className="main-content">
           {children}
           <footer className="page-footer">
-            <span>© {new Date().getFullYear()} Hawlader Battery House</span>
+            <span>© {new Date().getFullYear()} Howlader Battery House</span>
             <span>
               <span className="status-dot" />
               {preview ? "Design preview" : "Local workspace"} · Asia/Dhaka ·

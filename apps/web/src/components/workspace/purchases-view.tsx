@@ -29,11 +29,11 @@ import {
   type CatalogProduct,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { todayInDhaka } from "@/lib/use-dashboard";
+import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
-import { PurchaseQuickAdd } from "./purchase-quick-add";
-
+import { PurchaseDetailsButton, PurchaseQuickAdd } from "./purchase-quick-add";
+import { TransactionDeleteButton } from "./transaction-delete-button";
 type CartItem = {
   productId: string;
   name: string;
@@ -46,7 +46,6 @@ type CartItem = {
   quantity: number;
   unitPrice: string;
 };
-
 type PurchaseDraft = {
   cart: CartItem[];
   supplierId: string;
@@ -55,6 +54,7 @@ type PurchaseDraft = {
   reference: string;
   paymentType: string;
   partialPaid: string;
+  transportAmount?: string;
   requestKey: string | null;
   requestBody?: string;
 };
@@ -83,7 +83,6 @@ function readPurchaseDraft(key: string): PurchaseDraft | null {
     return null;
   }
 }
-
 export function PurchasesView({
   preview,
   view = "",
@@ -129,6 +128,9 @@ export function PurchasesView({
   const [purchaseDate, setPurchaseDate] = useState(
     () => draft?.purchaseDate || todayInDhaka(),
   );
+  const [transportAmount, setTransportAmount] = useState(
+    draft?.transportAmount ?? "",
+  );
   const [reference, setReference] = useState(draft?.reference ?? "");
   const [productTypeId, setProductTypeId] = useState(
     draft?.productTypeId ?? "",
@@ -164,13 +166,12 @@ export function PurchasesView({
             reference,
             paymentType,
             partialPaid,
+            transportAmount,
             requestKey: requestKey.current,
             requestBody: requestBody.current,
           } satisfies PurchaseDraft),
         );
-    } catch {
-      /* The form remains usable when browser storage is unavailable. */
-    }
+    } catch {}
   }, [
     cart,
     supplierId,
@@ -179,6 +180,7 @@ export function PurchasesView({
     reference,
     paymentType,
     partialPaid,
+    transportAmount,
     draftKey,
     preview,
     saving,
@@ -300,6 +302,10 @@ export function PurchasesView({
       setError("Enter a valid paid amount within the purchase total.");
       return;
     }
+    if (!/^\d{1,14}(?:\.\d{1,2})?$/.test(transportAmount || "0")) {
+      setError("Enter a valid transport amount.");
+      return;
+    }
     submitting.current = true;
     setReceived(null);
     setSaving(true);
@@ -342,7 +348,6 @@ export function PurchasesView({
             unitPrice,
           },
         ];
-        // Keep the exact pending items for a safe retry if receiving fails.
         setCart(items);
         selectProductName("");
         setQuantity(0);
@@ -358,7 +363,8 @@ export function PurchasesView({
           unitPrice,
         })),
         paidAmount: paid,
-        ...(cents(paid) > BigInt(0)
+        transportAmount: transportAmount || "0.00",
+        ...(cents(paid) > BigInt(0) || cents(transportAmount) > BigInt(0)
           ? {
               paymentAccountId: options.data?.paymentAccounts.find(
                 (account) => account.paymentMethod === "CASH",
@@ -375,10 +381,12 @@ export function PurchasesView({
         "Idempotency-Key": requestKey.current,
       });
       setReceived(result);
+      notifyDashboardUpdate();
       setConfirmedItems(items);
       setCart([]);
       setPaymentType("full");
       setPartialPaid("");
+      setTransportAmount("");
       setReference("");
       requestKey.current = null;
       requestBody.current = "";
@@ -646,7 +654,6 @@ export function PurchasesView({
                             selectProductName("");
                             setQuantity(0);
                             setUnitPrice("");
-
                             setError("");
                           }}
                         >
@@ -802,7 +809,21 @@ export function PurchasesView({
                           }
                         />
                       </Field>
-
+                      <Field label="Transport (৳)">
+                        <input
+                          aria-label="Purchase transport amount"
+                          type="number"
+                          min="0"
+                          max="99999999999999.99"
+                          step="0.01"
+                          value={transportAmount}
+                          placeholder="0.00"
+                          disabled={!canPay}
+                          onChange={(event) =>
+                            setTransportAmount(event.target.value)
+                          }
+                        />
+                      </Field>
                       <Field label="Purchase Date" required>
                         <input
                           type="date"
@@ -850,17 +871,11 @@ export function PurchasesView({
                     aria-busy={loading || recent.loading}
                   >
                     <div className="erp-table-wrap">
-                      <table className="erp-table purchase-recent-table">
-                        <caption className="sr-only">
-                          Latest 10 confirmed purchases, newest first
-                        </caption>
-                        <colgroup>
-                          {[8, 9, 10, 9, 8, 12, 13, 6, 5, 10, 10].map(
-                            (width, index) => (
-                              <col key={index} style={{ width: width + "%" }} />
-                            ),
-                          )}
-                        </colgroup>
+                      <table
+                        className="erp-table purchase-recent-table"
+                        style={{ tableLayout: "auto" }}
+                      >
+                        <caption className="sr-only">Recent purchases</caption>
                         <thead>
                           <tr>
                             {[
@@ -875,8 +890,20 @@ export function PurchasesView({
                               "Qty",
                               "Unit Price (৳)",
                               "Total (৳)",
+                              "Details",
+                              "Action",
                             ].map((label) => (
-                              <th key={label} scope="col">
+                              <th
+                                key={label}
+                                scope="col"
+                                className={
+                                  label === "Details"
+                                    ? "purchase-details-cell"
+                                    : label === "Action"
+                                      ? "purchase-action-cell"
+                                      : undefined
+                                }
+                              >
                                 {label}
                               </th>
                             ))}
@@ -931,6 +958,39 @@ export function PurchasesView({
                                 <td data-label="Total (৳)">
                                   {money(item.total)}
                                 </td>
+                                {index === 0 ? (
+                                  <>
+                                    <td
+                                      data-label="Details"
+                                      className="purchase-details-cell"
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      <PurchaseDetailsButton
+                                        purchase={purchase}
+                                      />
+                                    </td>
+                                    <td
+                                      data-label="Action"
+                                      className="purchase-action-cell"
+                                      rowSpan={purchase.items.length}
+                                    >
+                                      <TransactionDeleteButton
+                                        kind="purchases"
+                                        id={purchase.id}
+                                        label={purchase.number}
+                                        preview={preview}
+                                        onDeleted={() => {
+                                          if (received?.id === purchase.id) {
+                                            setReceived(null);
+                                            setConfirmedItems([]);
+                                          }
+                                          setPage(1);
+                                          setRevision((value) => value + 1);
+                                        }}
+                                      />
+                                    </td>
+                                  </>
+                                ) : null}
                               </tr>
                             )),
                           )}
@@ -1000,6 +1060,14 @@ export function PurchasesView({
                         ),
                       ],
                       ["Subtotal", money(summaryTotal)],
+                      [
+                        "Transport",
+                        money(
+                          showingConfirmed
+                            ? (received?.transportAmount ?? "0.00")
+                            : transportAmount || "0.00",
+                        ),
+                      ],
                       ["Paid", money(summaryPaid)],
                       ["Due", money(summaryDue)],
                     ]}

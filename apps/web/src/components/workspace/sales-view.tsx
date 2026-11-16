@@ -1,5 +1,11 @@
 "use client";
-import { useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import { Dialog } from "radix-ui";
 import {
   Check,
@@ -36,8 +42,10 @@ import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
+import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 import { CustomerForm } from "./customer-form";
 import { TransactionView } from "./transaction-view";
+import { TransactionDeleteButton } from "./transaction-delete-button";
 
 type SaleLine = {
   productId: string;
@@ -48,6 +56,161 @@ type SaleLine = {
   model: string;
 };
 const validPrice = (value: string) => /^\d{1,14}(?:\.\d{1,2})?$/.test(value);
+
+function RecentSales({
+  data,
+  loading,
+  error,
+  page,
+  pages,
+  onPage,
+  bodyRef,
+  onDeleted,
+  preview,
+}: {
+  data: SalesList | null;
+  loading: boolean;
+  error: string;
+  page: number;
+  pages: number;
+  onPage: (page: number) => void;
+  bodyRef: RefObject<HTMLDivElement | null>;
+  onDeleted: (id: string) => void;
+  preview: boolean;
+}) {
+  const [details, setDetails] = useState<SalesList["items"][number] | null>(
+    null,
+  );
+  const detailsButton = useRef<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <div className="sales-cart-body sales-history-body" ref={bodyRef}>
+        <div className="erp-table-wrap">
+          <table className="erp-table">
+            <caption className="sr-only">Recent sales</caption>
+            <colgroup>
+              {[15, 11, 19, 5, 11, 11, 11, 12, 5].map((width, index) => (
+                <col key={index} style={{ width: `${width}%` }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {[
+                  "Invoice",
+                  "Date",
+                  "Customer",
+                  "Qty",
+                  "Total (৳)",
+                  "Paid (৳)",
+                  "Due (৳)",
+                  "Details",
+                  "Action",
+                ].map((label) => (
+                  <th key={label} scope="col">
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data?.items.map((sale) => (
+                <tr key={sale.id}>
+                  <td title={sale.invoiceNumber ?? undefined}>
+                    {sale.invoiceNumber || "—"}
+                  </td>
+                  <td>{sale.saleDate || "—"}</td>
+                  <td>
+                    {sale.customer.name}
+                    <small className="block text-slate-500">
+                      {sale.customer.phone}
+                    </small>
+                  </td>
+                  <td>{sale.quantity}</td>
+                  <td>{money(sale.total)}</td>
+                  <td>{money(sale.paid)}</td>
+                  <td>{money(sale.due)}</td>
+                  <td>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      style={{ width: "auto" }}
+                      onClick={(event) => {
+                        detailsButton.current = event.currentTarget;
+                        setDetails(sale);
+                      }}
+                    >
+                      View Details
+                    </Button>
+                  </td>
+                  <td>
+                    <TransactionDeleteButton
+                      kind="sales"
+                      id={sale.id}
+                      label={sale.invoiceNumber || sale.id}
+                      preview={preview}
+                      onDeleted={() => onDeleted(sale.id)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!data?.items.length ? (
+          <div className="erp-empty sales-cart-empty" role="status">
+            <PackageOpen />
+            <p>
+              {loading
+                ? "Loading sales..."
+                : error
+                  ? "Unable to load sales"
+                  : "No confirmed sales yet"}
+            </p>
+            <span>নিশ্চিত বিক্রয় এখানে দেখা যাবে।</span>
+          </div>
+        ) : null}
+      </div>
+      <div className="erp-pager sales-items-pager">
+        <span>
+          {data?.total ?? 0} sales · Page {page} / {pages}
+        </span>
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Previous recent sales page"
+            disabled={loading || page <= 1}
+            onClick={() => onPage(page - 1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Next recent sales page"
+            disabled={loading || page >= pages}
+            onClick={() => onPage(page + 1)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      </div>
+      {details ? (
+        <CustomerSalesHistoryDialog
+          key={details.id}
+          customer={details.customer}
+          sale={details}
+          preview={preview}
+          onClose={() => setDetails(null)}
+          returnFocus={() => detailsButton.current?.focus()}
+        />
+      ) : null}
+    </>
+  );
+}
 
 export function SalesView({
   preview = false,
@@ -65,6 +228,8 @@ export function SalesView({
   const user = useSession();
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(3);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const current = ["list", "returns", "collections", "reports"].includes(view)
     ? view
     : "new";
@@ -73,8 +238,8 @@ export function SalesView({
     revision,
   );
   const listing = useCatalogResource<SalesList>(
-    !preview && !loading && current === "list"
-      ? `/sales?page=${page}&pageSize=20`
+    !preview && !loading && ["new", "list"].includes(current)
+      ? `/sales?page=${page}&pageSize=${current === "new" ? itemsPerPage : 20}`
       : null,
     revision,
   );
@@ -99,12 +264,27 @@ export function SalesView({
   const [saleType, setSaleType] = useState("cash");
   const [partialPaid, setPartialPaid] = useState("");
   const [notes, setNotes] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [mobilePanel, setMobilePanel] = useState("details");
+  const [itemsPage, setItemsPage] = useState(1);
+  const cartBody = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState<
     (CompletedSale & { items: SaleLine[] }) | null
   >(null);
   const displayedItems = completed?.items ?? cart;
+  const showHistory = historyOpen || displayedItems.length === 0;
+  const itemPages = Math.max(
+    1,
+    Math.ceil(displayedItems.length / itemsPerPage),
+  );
+  const currentItemsPage = Math.min(itemsPage, itemPages);
+  const visibleItems = displayedItems.slice(
+    (currentItemsPage - 1) * itemsPerPage,
+    currentItemsPage * itemsPerPage,
+  );
   const submission = useRef<{ signature: string; key: string } | null>(null);
   const submitting = useRef(false);
   const customers = [
@@ -147,6 +327,22 @@ export function SalesView({
     Math.ceil((listing.data?.total ?? 0) / (listing.data?.pageSize ?? 20)),
   );
 
+  useEffect(() => {
+    const element = cartBody.current;
+    if (!element || current !== "new") return;
+    const observer = new ResizeObserver(() => {
+      const height = element.clientHeight;
+      if (!height) return;
+      const rowHeight = window.matchMedia("(max-height: 700px)").matches
+        ? 38
+        : 44;
+      // Reserve the table header and horizontal scrollbar within the item area.
+      setItemsPerPage(Math.max(1, Math.floor((height - 32 - 18) / rowHeight)));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [current, mobilePanel, showHistory]);
+
   function resetEntry() {
     setProductId("");
     setQuantity("0");
@@ -177,6 +373,8 @@ export function SalesView({
         model: product.model,
       },
     ]);
+    setItemsPage(Math.ceil((cart.length + 1) / itemsPerPage));
+    setHistoryOpen(false);
     resetEntry();
     setCompleted(null);
   }
@@ -247,6 +445,8 @@ export function SalesView({
         "Idempotency-Key": submission.current.key,
       });
       setCompleted({ ...result, items });
+      setHistoryOpen(true);
+      setPage(1);
       setCart([]);
       resetEntry();
       setPartialPaid("");
@@ -271,7 +471,10 @@ export function SalesView({
     );
 
   return (
-    <div className="sales-workspace" aria-busy={busy || listing.loading}>
+    <div
+      className={`sales-workspace ${current === "new" ? "sales-entry-workspace" : ""}`}
+      aria-busy={busy || listing.loading}
+    >
       <ModuleTabs
         moduleId="sales"
         current={current}
@@ -391,13 +594,39 @@ export function SalesView({
           </div>
         </Panel>
       ) : (
-        <form onSubmit={completeSale} className="sales-form">
+        <form
+          onSubmit={completeSale}
+          className="sales-form"
+          onInvalidCapture={(event) => {
+            setMobilePanel(
+              (event.target as HTMLElement).closest(".sales-side")
+                ? "payment"
+                : "details",
+            );
+          }}
+        >
+          <nav className="sales-mobile-panels" aria-label="Sale panels">
+            {[
+              ["details", "Details"],
+              ["items", "Items / Sales"],
+              ["payment", "Payment"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={mobilePanel === id}
+                onClick={() => setMobilePanel(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
           <fieldset
             disabled={saving || busy || Boolean(moduleError)}
             className="sales-fieldset"
           >
             <legend className="sr-only">Sales details</legend>
-            <div className="sales-layout">
+            <div className="sales-layout" data-panel={mobilePanel}>
               <div className="sales-main">
                 <Panel
                   title="Customer & Invoice"
@@ -461,7 +690,23 @@ export function SalesView({
                     </p>
                   </div>
                 </Panel>
-                <Panel title="Add Products" className="sales-products-panel">
+                <Panel
+                  title="Add Products"
+                  className="sales-products-panel"
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addLine}
+                      disabled={
+                        !product || Number(product.availableQuantity) <= 0
+                      }
+                    >
+                      <Plus /> Add Another Product
+                    </Button>
+                  }
+                >
                   <div className="erp-form-body">
                     <div className="sales-product-fields">
                       <Field
@@ -575,28 +820,6 @@ export function SalesView({
                           value={decimalAmount(cents(lineTotal))}
                         />
                       </Field>
-                      <Button
-                        type="submit"
-                        disabled={
-                          preview ||
-                          saving ||
-                          Boolean(completed) ||
-                          busy ||
-                          !customer ||
-                          (!product && !cart.length) ||
-                          Boolean(moduleError) ||
-                          Boolean(
-                            product && Number(product.availableQuantity) <= 0,
-                          )
-                        }
-                      >
-                        {saving ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : (
-                          <Check />
-                        )}
-                        {saving ? "Confirming..." : "Confirm Sale"}
-                      </Button>
                     </div>
                     <p className="sales-stock-hint">
                       {product
@@ -606,133 +829,178 @@ export function SalesView({
                   </div>
                 </Panel>
                 <Panel
-                  title="Sale Items"
+                  title={showHistory ? "Recent Sales" : "Sale Items"}
                   className="sales-cart-panel"
                   action={
                     <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addLine}
-                        disabled={
-                          !product || Number(product.availableQuantity) <= 0
-                        }
-                      >
-                        <Plus /> Add Another Product
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={!displayedItems.length}
-                        onClick={() => {
-                          setCompleted(null);
-                          setCart([]);
-                          setPartialPaid("");
-                          setError("");
-                        }}
-                      >
-                        <Trash2 />
-                        Clear All
-                      </Button>
+                      {displayedItems.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHistoryOpen(!showHistory)}
+                        >
+                          {showHistory
+                            ? `Sale Items (${displayedItems.length})`
+                            : "Recent Sales"}
+                        </Button>
+                      ) : null}
+                      {!showHistory ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={!displayedItems.length}
+                          onClick={() => {
+                            setCompleted(null);
+                            setCart([]);
+                            setPartialPaid("");
+                            setError("");
+                          }}
+                        >
+                          <Trash2 />
+                          Clear All
+                        </Button>
+                      ) : null}
                     </div>
                   }
                 >
-                  <div className="sales-cart-body">
-                    <div className="erp-table-wrap">
-                      <table className="erp-table">
-                        <caption className="sr-only">Sale items</caption>
-                        <colgroup>
-                          {[25, 20, 7, 13, 15, 12, 8].map((width, index) => (
-                            <col key={index} style={{ width: `${width}%` }} />
-                          ))}
-                        </colgroup>
-                        <thead>
-                          <tr>
-                            {[
-                              "Product",
-                              "Model Number",
-                              "Qty",
-                              "Unit Price (৳)",
-                              "Total (৳)",
-                              "Due",
-                              "Action",
-                            ].map((column) => (
-                              <th key={column}>{column}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayedItems.map((line) => (
-                            <tr key={line.productId}>
-                              <td>
-                                {line.name}
-                                <small className="block text-slate-500">
-                                  {line.typeName}
-                                </small>
-                              </td>
-                              <td>{line.model || "-"}</td>
-                              <td>{line.quantity}</td>
-                              <td>{money(line.unitPrice)}</td>
-                              <td>
-                                {money(
-                                  decimalAmount(
-                                    cents(line.unitPrice) *
-                                      BigInt(line.quantity),
-                                  ),
-                                )}
-                              </td>
-                              <td aria-label="Customer outstanding due">
-                                {money(customerDue)}
-                              </td>
-                              <td>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label={`Remove ${line.name}`}
-                                  disabled={Boolean(completed)}
-                                  onClick={() =>
-                                    setCart((lines) =>
-                                      lines.filter(
-                                        (item) =>
-                                          item.productId !== line.productId,
+                  {showHistory ? (
+                    <RecentSales
+                      data={listing.data}
+                      loading={loading || listing.loading}
+                      error={listing.error}
+                      page={page}
+                      pages={pages}
+                      onPage={setPage}
+                      bodyRef={cartBody}
+                      preview={preview}
+                      onDeleted={(id) => {
+                        if (completed?.id === id) setCompleted(null);
+                        setPage(1);
+                        setRevision((value) => value + 1);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <div className="sales-cart-body" ref={cartBody}>
+                        <div className="erp-table-wrap">
+                          <table className="erp-table">
+                            <caption className="sr-only">Sale items</caption>
+                            <colgroup>
+                              {[25, 20, 7, 13, 15, 12, 8].map(
+                                (width, index) => (
+                                  <col
+                                    key={index}
+                                    style={{ width: `${width}%` }}
+                                  />
+                                ),
+                              )}
+                            </colgroup>
+                            <thead>
+                              <tr>
+                                {[
+                                  "Product",
+                                  "Model Number",
+                                  "Qty",
+                                  "Unit Price (৳)",
+                                  "Total (৳)",
+                                  "Due",
+                                  "Action",
+                                ].map((column) => (
+                                  <th key={column}>{column}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {visibleItems.map((line) => (
+                                <tr key={line.productId}>
+                                  <td>
+                                    {line.name}
+                                    <small className="block text-slate-500">
+                                      {line.typeName}
+                                    </small>
+                                  </td>
+                                  <td>{line.model || "-"}</td>
+                                  <td>{line.quantity}</td>
+                                  <td>{money(line.unitPrice)}</td>
+                                  <td>
+                                    {money(
+                                      decimalAmount(
+                                        cents(line.unitPrice) *
+                                          BigInt(line.quantity),
                                       ),
-                                    )
-                                  }
-                                >
-                                  <Trash2 />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {!displayedItems.length ? (
-                      <div className="erp-empty sales-cart-empty">
-                        <PackageOpen />
-                        <p>কোনো পণ্য যোগ করা হয়নি</p>
-                        <span>
-                          পণ্য, quantity ও unit price দিয়ে Confirm Sale চাপুন।
-                        </span>
+                                    )}
+                                  </td>
+                                  <td aria-label="Customer outstanding due">
+                                    {money(customerDue)}
+                                  </td>
+                                  <td>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Remove ${line.name}`}
+                                      disabled={Boolean(completed)}
+                                      onClick={() =>
+                                        setCart((lines) =>
+                                          lines.filter(
+                                            (item) =>
+                                              item.productId !== line.productId,
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      <Trash2 />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {!displayedItems.length ? (
+                          <div className="erp-empty sales-cart-empty">
+                            <PackageOpen />
+                            <p>কোনো পণ্য যোগ করা হয়নি</p>
+                            <span>
+                              পণ্য, quantity ও unit price দিয়ে Confirm Sale চাপুন।
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                </Panel>
-                <Panel title="Remark (Optional)">
-                  <div className="erp-form-body">
-                    <Field label="Sale notes" className="[&>span]:sr-only">
-                      <textarea
-                        aria-label="Sale notes"
-                        value={notes}
-                        maxLength={2000}
-                        onChange={(event) => setNotes(event.target.value)}
-                        placeholder="বিক্রয় সংক্রান্ত কোনো নোট..."
-                      />
-                    </Field>
-                  </div>
+                      {displayedItems.length > 0 ? (
+                        <div className="erp-pager sales-items-pager">
+                          <span>
+                            Page {currentItemsPage} / {itemPages} ·{" "}
+                            {displayedItems.length} items
+                          </span>
+                          <div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              aria-label="Previous sale items page"
+                              disabled={currentItemsPage <= 1}
+                              onClick={() => setItemsPage(currentItemsPage - 1)}
+                            >
+                              <ChevronLeft />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              aria-label="Next sale items page"
+                              disabled={currentItemsPage >= itemPages}
+                              onClick={() => setItemsPage(currentItemsPage + 1)}
+                            >
+                              <ChevronRight />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </Panel>
               </div>
               <aside className="sales-side">
@@ -833,9 +1101,87 @@ export function SalesView({
                 ? "UI preview: লগইন ছাড়া বিক্রয় সংরক্ষিত হবে না।"
                 : "নিশ্চিত করলে stock ও customer-এর হিসাব আপডেট হবে।"}
             </span>
+            <div className="sales-confirm-actions">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || Boolean(completed)}
+                onClick={() => {
+                  setNotesDraft(notes);
+                  setNotesOpen(true);
+                }}
+              >
+                <FileText />
+                {notes ? "Edit Note" : "Add Note"}
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  preview ||
+                  saving ||
+                  Boolean(completed) ||
+                  busy ||
+                  !customer ||
+                  (!product && !cart.length) ||
+                  Boolean(moduleError) ||
+                  Boolean(product && Number(product.availableQuantity) <= 0)
+                }
+              >
+                {saving ? <LoaderCircle className="animate-spin" /> : <Check />}
+                {saving ? "Confirming..." : "Confirm Sale"}
+              </Button>
+            </div>
           </div>
         </form>
       )}
+      <Dialog.Root open={notesOpen} onOpenChange={setNotesOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />
+          <Dialog.Content className="feature-dialog sales-notes-dialog">
+            <Dialog.Title className="text-lg font-bold">Sale Note</Dialog.Title>
+            <Dialog.Description className="mt-1 text-xs text-slate-500">
+              প্রয়োজন হলে বিক্রয় সংক্রান্ত নোট লিখুন।
+            </Dialog.Description>
+            <Field label="Sale notes">
+              <textarea
+                aria-label="Sale notes"
+                rows={4}
+                maxLength={2000}
+                value={notesDraft}
+                onChange={(event) => setNotesDraft(event.target.value)}
+                placeholder="বিক্রয় সংক্রান্ত কোনো নোট..."
+              />
+            </Field>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-400">
+                {notesDraft.length}/2000
+              </span>
+              <div className="flex gap-2">
+                <Dialog.Close asChild>
+                  <Button type="button" variant="outline">
+                    Cancel
+                  </Button>
+                </Dialog.Close>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setNotes(notesDraft);
+                    setNotesOpen(false);
+                  }}
+                >
+                  Save Note
+                </Button>
+              </div>
+            </div>
+            <Dialog.Close
+              aria-label="Close note dialog"
+              className="absolute top-4 right-4"
+            >
+              <X size={18} />
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root open={customerOpen} onOpenChange={setCustomerOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-60 bg-slate-950/40" />

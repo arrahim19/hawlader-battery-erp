@@ -3,6 +3,7 @@ import type {
   CurrentUser,
   CustomerRecord,
   SalesOptions,
+  SalesList,
   DashboardData,
 } from "../../packages/api-client/src";
 
@@ -45,7 +46,7 @@ type SubmittedSale = {
   paymentAccountId?: string;
 };
 
-async function mockSalesWorkspace(page: Page) {
+async function mockSalesWorkspace(page: Page, extraProducts = 0) {
   const customers = [structuredClone(existingCustomer)];
   const options: SalesOptions = {
     types: [
@@ -82,6 +83,12 @@ async function mockSalesWorkspace(page: Page) {
       { id: "cash-one", name: "Cash Counter", paymentMethod: "CASH" },
     ],
   };
+  for (let index = 0; index < extraProducts; index++)
+    options.products.push({
+      ...options.products[0],
+      id: `extra-part-${index}`,
+      name: `Extra Part ${index}`,
+    });
   const submittedCustomers: Record<string, unknown>[] = [];
   const submittedSales: { body: SubmittedSale; key: string; csrf: string }[] =
     [];
@@ -89,6 +96,7 @@ async function mockSalesWorkspace(page: Page) {
   const errors: string[] = [];
   let failCompletion = true;
   const recentSales: DashboardData["recentSales"] = [];
+  const savedSales: SalesList["items"] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   // Every API request, including writes, is fulfilled inside the browser fixture.
   // No customer, sale, payment, or stock change reaches the business database.
@@ -132,6 +140,20 @@ async function mockSalesWorkspace(page: Page) {
                 .reduce((total, customer) => total + Number(customer.due), 0)
                 .toFixed(2),
             },
+          },
+        },
+      });
+    }
+    if (method === "GET" && path === "/sales") {
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const pageSize = Number(url.searchParams.get("pageSize") ?? 20);
+      return route.fulfill({
+        json: {
+          data: {
+            items: savedSales.slice((page - 1) * pageSize, page * pageSize),
+            total: savedSales.length,
+            page,
+            pageSize,
           },
         },
       });
@@ -207,6 +229,25 @@ async function mockSalesWorkspace(page: Page) {
       const customer = customers.find((item) => item.id === body.customerId)!;
       customer.totalSales = total;
       customer.due = due;
+      savedSales.unshift({
+        id: "completed-sale",
+        invoiceNumber: "SALE-E2E-001",
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+        },
+        saleDate: body.saleDate,
+        status: "CONFIRMED",
+        subtotal: total,
+        total,
+        paid: body.paidAmount,
+        due,
+        quantity: String(
+          body.items.reduce((sum, item) => sum + item.quantity, 0),
+        ),
+        itemCount: body.items.length,
+      });
       recentSales.push({
         id: "completed-sale",
         invoiceNumber: "SALE-E2E-001",
@@ -234,7 +275,7 @@ async function mockSalesWorkspace(page: Page) {
     unhandled.push(method + " " + path);
     return route.abort();
   });
-  return { submittedCustomers, submittedSales, unhandled, errors };
+  return { submittedCustomers, submittedSales, savedSales, unhandled, errors };
 }
 
 async function shellGeometry(page: Page) {
@@ -267,6 +308,206 @@ async function expectNoHorizontalOverflow(page: Page) {
   ).toBe(true);
 }
 
+async function salePanel(page: Page, name: "Details" | "Items" | "Payment") {
+  await expect(page.locator(".sales-entry-workspace")).toBeVisible();
+  const panels = page.getByRole("navigation", { name: "Sale panels" });
+  if (await panels.isVisible())
+    await panels.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+}
+
+test("saved sales appear on entry, survive reload, and paginate without changing the draft", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({
+    width: info.project.name === "mobile" ? 390 : 1366,
+    height: 650,
+  });
+  const fixture = await mockSalesWorkspace(page);
+  fixture.savedSales.push(
+    ...Array.from({ length: 24 }, (_, index) => ({
+      id: `saved-${index}`,
+      invoiceNumber: `SAVED-${index + 1}`,
+      customer: {
+        id: existingCustomer.id,
+        name: existingCustomer.name,
+        phone: existingCustomer.phone,
+      },
+      saleDate: "2026-11-16",
+      status: "CONFIRMED",
+      subtotal: "100.00",
+      total: "100.00",
+      paid: "75.00",
+      due: "25.00",
+      quantity: "1",
+      itemCount: 1,
+    })),
+  );
+  await page.goto("/sales");
+  await salePanel(page, "Items");
+  const history = page.getByRole("table", {
+    name: "Recent sales",
+    exact: true,
+  });
+  await expect(history).toContainText("SAVED-1");
+  await expect(history).toContainText("Existing Customer");
+  await expect(history.locator("tbody tr").first()).toContainText("75.00");
+  await expect(history.locator("tbody tr").first()).toContainText("25.00");
+  await page
+    .getByRole("button", { name: "Next recent sales page", exact: true })
+    .click();
+  await expect(
+    history.locator("tbody tr").first().locator("td").first(),
+  ).not.toHaveText("SAVED-1");
+  await page.reload();
+  await salePanel(page, "Items");
+  await expect(
+    history.locator("tbody tr").first().locator("td").first(),
+  ).toHaveText("SAVED-1");
+  await salePanel(page, "Details");
+  await page
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await page
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  await page.getByLabel("Sales quantity", { exact: true }).fill("2");
+  await page
+    .getByRole("button", { name: "Add Another Product", exact: true })
+    .click();
+  await salePanel(page, "Items");
+  await expect(
+    page.getByRole("table", { name: "Sale items", exact: true }),
+  ).toContainText("Sale Test Auto Part");
+  await page.getByRole("button", { name: "Recent Sales", exact: true }).click();
+  await expect(history).toContainText("SAVED-1");
+  await page
+    .getByRole("button", { name: "Sale Items (1)", exact: true })
+    .click();
+  await expect(
+    page.getByRole("table", { name: "Sale items", exact: true }),
+  ).toContainText("Sale Test Auto Part");
+  expect(fixture.submittedSales).toHaveLength(0);
+  expect(fixture.unhandled).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test("sale entry and long carts fit short viewports without vertical scrolling", async ({
+  page,
+}, info) => {
+  const fixture = await mockSalesWorkspace(page, 4);
+  const sizes =
+    info.project.name === "mobile"
+      ? [
+          [390, 650],
+          [360, 640],
+        ]
+      : [
+          [1366, 650],
+          [1024, 600],
+        ];
+  for (const [width, height] of sizes) {
+    await page.setViewportSize({ width, height });
+    await page.goto("/sales/new");
+    await page
+      .getByLabel("Select customer", { exact: true })
+      .selectOption("existing-customer");
+    const assertFits = async () => {
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const root = document.documentElement;
+            const main = document.querySelector(".main-content")!;
+            const action = document
+              .querySelector(".sales-confirm-actions")!
+              .getBoundingClientRect();
+            return (
+              root.scrollHeight <= innerHeight &&
+              root.scrollWidth <= innerWidth &&
+              main.scrollHeight <= main.clientHeight + 1 &&
+              action.bottom <= innerHeight
+            );
+          }),
+        )
+        .toBe(true);
+      await expect(
+        page.getByRole("button", { name: "Add Note", exact: true }),
+      ).toBeInViewport();
+      await expect(
+        page.getByRole("button", { name: "Confirm Sale", exact: true }),
+      ).toBeInViewport();
+    };
+    await assertFits();
+    await page
+      .getByLabel("Sales product category", { exact: true })
+      .selectOption("parts");
+    for (const id of [
+      "part-one",
+      "extra-part-0",
+      "extra-part-1",
+      "extra-part-2",
+      "extra-part-3",
+    ]) {
+      await page.getByLabel("Sales product", { exact: true }).selectOption(id);
+      await page.getByLabel("Sales quantity", { exact: true }).fill("1");
+      await page
+        .getByRole("button", { name: "Add Another Product", exact: true })
+        .click();
+    }
+    await salePanel(page, "Items");
+    await assertFits();
+    const previous = page.getByRole("button", {
+      name: "Previous sale items page",
+      exact: true,
+    });
+    const next = page.getByRole("button", {
+      name: "Next sale items page",
+      exact: true,
+    });
+    while (await previous.isEnabled()) await previous.click();
+    const names = new Set<string>();
+    do {
+      for (const name of await page
+        .locator(".sales-cart-panel tbody td:first-child")
+        .allTextContents())
+        names.add(name);
+      await expect
+        .poll(() =>
+          page
+            .locator(".sales-cart-body .erp-table-wrap")
+            .evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+        )
+        .toBe(true);
+      if (!(await next.isEnabled())) break;
+      await next.click();
+    } while (true);
+    expect(names.size).toBe(5);
+    await salePanel(page, "Payment");
+    await page
+      .getByLabel("Sales type", { exact: true })
+      .selectOption("partial");
+    await page.getByLabel("Sales paid amount", { exact: true }).fill("100");
+    await expect(
+      page.getByLabel("Sales due amount", { exact: true }),
+    ).toHaveValue("400.00");
+    await assertFits();
+    await page.getByRole("button", { name: "Add Note", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Sale Note", exact: true });
+    await expect(dialog).toBeInViewport();
+    await dialog
+      .getByLabel("Sale notes", { exact: true })
+      .fill("Optional delivery note");
+    await dialog
+      .getByRole("button", { name: "Save Note", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit Note", exact: true }),
+    ).toBeInViewport();
+  }
+  expect(fixture.submittedSales).toHaveLength(0);
+  expect(fixture.unhandled).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test("Confirm Sale saves the selected product directly and updates the dashboard", async ({
   page,
 }) => {
@@ -297,6 +538,26 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
     name: "Confirm Sale",
     exact: true,
   });
+  await expect(page.getByLabel("Sale notes", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add Note", exact: true }).click();
+  const noteDialog = page.getByRole("dialog", {
+    name: "Sale Note",
+    exact: true,
+  });
+  await noteDialog
+    .getByLabel("Sale notes", { exact: true })
+    .fill("Handle with care");
+  await noteDialog
+    .getByRole("button", { name: "Save Note", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Edit Note", exact: true }).click();
+  await expect(
+    noteDialog.getByLabel("Sale notes", { exact: true }),
+  ).toHaveValue("Handle with care");
+  await noteDialog
+    .getByLabel("Sale notes", { exact: true })
+    .fill("Discard this edit");
+  await noteDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await confirm.click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "temporarily unavailable",
@@ -307,6 +568,13 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
   await confirm.click();
   await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
   await expect(page.locator(".sales-success a")).toHaveCount(0);
+  await salePanel(page, "Items");
+  await expect(
+    page.getByRole("table", { name: "Recent sales", exact: true }),
+  ).toContainText("SALE-E2E-001");
+  await page
+    .getByRole("button", { name: "Sale Items (1)", exact: true })
+    .click();
   const savedRow = page.locator(".sales-cart-panel tbody tr");
   await expect(savedRow).toContainText("Sale Test Auto Part");
   await expect(savedRow).toContainText("Standard");
@@ -318,6 +586,7 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
   expect(fixture.submittedSales[1].body).toMatchObject({
     items: [{ productId: "part-one", quantity: 3, unitPrice: "125.50" }],
     paidAmount: "376.50",
+    notes: "Handle with care",
   });
   await expect(confirm).toBeDisabled();
   await page.goto("/dashboard");
@@ -447,11 +716,13 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     )
     .toBe(376.5);
   await add.click();
+  await salePanel(page, "Items");
   await expect(itemRow("Sale Test Auto Part")).toBeVisible();
   await page
     .getByRole("button", { name: "Remove Sale Test Auto Part", exact: true })
     .click();
   await expect(itemRow("Sale Test Auto Part")).toHaveCount(0);
+  await salePanel(page, "Details");
   await category.selectOption("parts");
   await product.selectOption("part-one");
   await quantity.fill("3");
@@ -470,7 +741,9 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     page.getByRole("button", { name: "Select Battery Units", exact: true }),
   ).toHaveCount(0);
   await add.click();
+  await salePanel(page, "Items");
   await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await salePanel(page, "Payment");
   const summary = (label: string) =>
     page
       .locator(".erp-summary-rows > div")
@@ -507,17 +780,26 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   );
   expect(fixture.submittedSales).toHaveLength(1);
   await expect(customer).toHaveValue("created-customer");
+  await salePanel(page, "Items");
   await expect(itemRow("Sale Test Auto Part")).toBeVisible();
   await expect(itemRow("Sale Test Battery")).toBeVisible();
   await complete.click();
   await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
+  await expect(
+    page.getByRole("table", { name: "Recent sales", exact: true }),
+  ).toContainText("SALE-E2E-001");
+  await page
+    .getByRole("button", { name: "Sale Items (2)", exact: true })
+    .click();
   await expect(itemRow("Sale Test Auto Part")).toBeVisible();
   await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await salePanel(page, "Payment");
   await expect(summary("Subtotal")).toContainText("3,376.50");
   await expect(paid).toHaveValue("1000.00");
   await expect(
     page.getByLabel("Sales due amount", { exact: true }),
   ).toHaveValue("2376.50");
+  await salePanel(page, "Items");
   await expect(
     page.getByRole("button", { name: "Remove Sale Test Battery", exact: true }),
   ).toBeDisabled();
@@ -544,12 +826,14 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     paidAmount: "1000.00",
     paymentAccountId: "cash-one",
   });
+  await salePanel(page, "Details");
   await category.selectOption("parts");
   await product.selectOption("part-one");
   await quantity.fill("1");
   await expect(itemRow("Sale Test Auto Part")).toHaveCount(0);
   await expect(itemRow("Sale Test Battery")).toHaveCount(0);
   await expect(page.locator(".sales-success")).toHaveCount(0);
+  await salePanel(page, "Payment");
   await expect(summary("Subtotal")).toContainText("100.00");
   await expect(complete).toBeEnabled();
   expect(fixture.submittedCustomers).toHaveLength(1);

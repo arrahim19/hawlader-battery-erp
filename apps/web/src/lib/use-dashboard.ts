@@ -33,7 +33,8 @@ export function useDashboardData({
     key: string;
     message: string;
   } | null>(null);
-  const key = [from, to, revision].join(":");
+  const rangeKey = [from, to].join(":");
+  const key = [rangeKey, revision].join(":");
   useEffect(() => {
     if (preview || !enabled) return;
     const refreshWhenVisible = () => {
@@ -62,7 +63,11 @@ export function useDashboardData({
     api<DashboardData>(`/dashboard?from=${from}&to=${to}`, {
       signal: controller.signal,
     })
-      .then((data) => setResult({ key, data }))
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setResult({ key: rangeKey, data });
+        setFailure(null);
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
           setFailure({
@@ -74,11 +79,13 @@ export function useDashboardData({
           });
       });
     return () => controller.abort();
-  }, [key, from, to, preview, enabled]);
+  }, [key, rangeKey, from, to, preview, enabled]);
   return {
-    data: result?.key === key ? result.data : null,
+    // Keep the current range visible while polling or refreshing in the background.
+    data: result?.key === rangeKey ? result.data : null,
     error: failure?.key === key ? failure.message : "",
-    loading: !preview && enabled && result?.key !== key && failure?.key !== key,
+    loading:
+      !preview && enabled && result?.key !== rangeKey && failure?.key !== key,
     refresh: () => setRevision((value) => value + 1),
   };
 }

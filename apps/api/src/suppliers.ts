@@ -32,7 +32,12 @@ import {
 } from "class-validator";
 import { Permissions, type AuthRequest } from "./auth";
 import { DatabaseService } from "./database.service";
-import { productCategoryCodes } from "./product-categories";
+import {
+  orderProductCategories,
+  productCategoryCodes,
+} from "./product-categories";
+
+import { lockBinEntry } from "./recycle-state";
 
 const trimmed = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
@@ -114,12 +119,12 @@ export class SuppliersController {
 
   @Get("product-types")
   async productTypes() {
+    const types = await this.db.productType.findMany({
+      where: { active: true, code: { in: productCategoryCodes } },
+      select: { id: true, name: true, code: true },
+    });
     return {
-      data: await this.db.productType.findMany({
-        where: { active: true, code: { in: productCategoryCodes } },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
+      data: orderProductCategories(types).map(({ id, name }) => ({ id, name })),
     };
   }
 
@@ -130,6 +135,15 @@ export class SuppliersController {
       orderBy: { createdAt: "desc" },
       select: { id: true, resourceId: true, createdAt: true, metadata: true },
     });
+    const finalized = await this.db.auditLog.findMany({
+      where: { action: "RECYCLE_BIN_FINALIZED" },
+      select: { metadata: true },
+    });
+    const hidden = new Set(
+      finalized.map(
+        (e) => (e.metadata as { entryId?: string } | null)?.entryId,
+      ),
+    );
     const existing = await this.db.supplier.findMany({
       where: {
         id: {
@@ -151,6 +165,7 @@ export class SuppliersController {
           };
         } | null;
         if (
+          hidden.has(entry.id) ||
           !entry.resourceId ||
           seen.has(entry.resourceId) ||
           !metadata?.supplier
@@ -178,67 +193,7 @@ export class SuppliersController {
   ) {
     const supplier = await this.db.$transaction(
       async (tx) => {
-        const entry = await tx.auditLog.findFirst({
-          where: {
-            id: entryId,
-            action: "SUPPLIER_DELETED",
-            resourceType: "Supplier",
-          },
-        });
-        type Snapshot = {
-          id: string;
-          name: string;
-          company: string | null;
-          phone: string | null;
-          address: string | null;
-          active: boolean;
-          productTypeId: string | null;
-          brandId: string | null;
-          createdAt: string;
-          version: number;
-        };
-        const snapshot = (entry?.metadata as { supplier?: Snapshot } | null)
-          ?.supplier;
-        if (!entry?.resourceId || !snapshot)
-          throw new NotFoundException("Deleted supplier not found.");
-        if (await tx.supplier.findUnique({ where: { id: entry.resourceId } }))
-          throw new ConflictException("Supplier has already been restored.");
-        const latest = await tx.auditLog.findFirst({
-          where: {
-            resourceType: "Supplier",
-            resourceId: entry.resourceId,
-            action: "SUPPLIER_DELETED",
-          },
-          orderBy: { createdAt: "desc" },
-        });
-        if (latest?.id !== entry.id)
-          throw new ConflictException("Refresh the Recycle Bin and try again.");
-        const restored = await tx.supplier.create({
-          data: {
-            id: entry.resourceId,
-            name: snapshot.name,
-            company: snapshot.company,
-            phone: snapshot.phone,
-            address: snapshot.address,
-            active: snapshot.active,
-            productTypeId: snapshot.productTypeId,
-            brandId: snapshot.brandId,
-            createdAt: new Date(snapshot.createdAt),
-            version: snapshot.version,
-          },
-          select: contactFields,
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: req.currentUser!.id,
-            action: "SUPPLIER_RESTORED",
-            resourceType: "Supplier",
-            resourceId: restored.id,
-            requestId: req.requestId,
-            metadata: { deletionId: entry.id },
-          },
-        });
-        return restored;
+        return restoreDeletedSupplier(tx, entryId, req);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -478,4 +433,73 @@ export class SuppliersController {
     }
     return { data: { id } };
   }
+}
+
+export async function restoreDeletedSupplier(
+  tx: Prisma.TransactionClient,
+  entryId: string,
+  req: AuthRequest,
+) {
+  await lockBinEntry(tx, entryId);
+  const entry = await tx.auditLog.findFirst({
+    where: {
+      id: entryId,
+      action: "SUPPLIER_DELETED",
+      resourceType: "Supplier",
+    },
+  });
+  type Snapshot = {
+    id: string;
+    name: string;
+    company: string | null;
+    phone: string | null;
+    address: string | null;
+    active: boolean;
+    productTypeId: string | null;
+    brandId: string | null;
+    createdAt: string;
+    version: number;
+  };
+  const snapshot = (entry?.metadata as { supplier?: Snapshot } | null)
+    ?.supplier;
+  if (!entry?.resourceId || !snapshot)
+    throw new NotFoundException("Deleted supplier not found.");
+  if (await tx.supplier.findUnique({ where: { id: entry.resourceId } }))
+    throw new ConflictException("Supplier has already been restored.");
+  const latest = await tx.auditLog.findFirst({
+    where: {
+      resourceType: "Supplier",
+      resourceId: entry.resourceId,
+      action: "SUPPLIER_DELETED",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (latest?.id !== entry.id)
+    throw new ConflictException("Refresh the Recycle Bin and try again.");
+  const restored = await tx.supplier.create({
+    data: {
+      id: entry.resourceId,
+      name: snapshot.name,
+      company: snapshot.company,
+      phone: snapshot.phone,
+      address: snapshot.address,
+      active: snapshot.active,
+      productTypeId: snapshot.productTypeId,
+      brandId: snapshot.brandId,
+      createdAt: new Date(snapshot.createdAt),
+      version: snapshot.version,
+    },
+    select: contactFields,
+  });
+  await tx.auditLog.create({
+    data: {
+      actorId: req.currentUser!.id,
+      action: "SUPPLIER_RESTORED",
+      resourceType: "Supplier",
+      resourceId: restored.id,
+      requestId: req.requestId,
+      metadata: { deletionId: entry.id },
+    },
+  });
+  return restored;
 }

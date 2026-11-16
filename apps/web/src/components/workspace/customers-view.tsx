@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Car,
@@ -14,16 +14,13 @@ import {
   Search,
   Users,
 } from "lucide-react";
-import {
-  ModuleTabs,
-  Panel,
-  workspaceHref,
-} from "@/components/reference-ui";
+import { ModuleTabs, Panel, workspaceHref } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
-import { type CustomerList } from "@/lib/api";
+import { type CustomerList, type CustomerRecord } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { money } from "@/lib/utils";
 import { CustomerForm } from "./customer-form";
+import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 
 const columns = [
   "#",
@@ -32,7 +29,6 @@ const columns = [
   "Vehicle",
   "Total Sales",
   "Due",
-  "Status",
   "Details",
 ];
 
@@ -53,6 +49,10 @@ export function CustomersView({
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [historyCustomer, setHistoryCustomer] = useState<CustomerRecord | null>(
+    null,
+  );
+  const historyButton = useRef<HTMLButtonElement | null>(null);
   const params = new URLSearchParams({
     q: query,
     status,
@@ -280,16 +280,19 @@ export function CustomersView({
                         <td className="whitespace-nowrap">
                           {money(customer.due)}
                         </td>
-                        <td>{customer.active ? "Active" : "Inactive"}</td>
                         <td>
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`View ${customer.name}`}
-                            onClick={() => setSelectedId(customer.id)}
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              historyButton.current = event.currentTarget;
+                              setSelectedId(customer.id);
+                              setHistoryCustomer(customer);
+                            }}
                           >
                             <Eye />
+                            View Details
                           </Button>
                         </td>
                       </tr>
@@ -354,7 +357,6 @@ export function CustomersView({
                       ["Name", selected.name],
                       ["Mobile", selected.phone],
                       ["Address", selected.address || "—"],
-                      ["Status", selected.active ? "Active" : "Inactive"],
                       ["Total Sales", money(selected.totalSales)],
                       ["Outstanding Due", money(selected.due)],
                     ].map(([label, value]) => (
@@ -414,6 +416,15 @@ export function CustomersView({
           </div>
         </>
       )}
+      {historyCustomer ? (
+        <CustomerSalesHistoryDialog
+          key={historyCustomer.id}
+          customer={historyCustomer}
+          preview={preview}
+          onClose={() => setHistoryCustomer(null)}
+          returnFocus={() => historyButton.current?.focus()}
+        />
+      ) : null}
     </>
   );
 }

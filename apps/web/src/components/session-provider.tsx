@@ -15,7 +15,6 @@ import {
   type CurrentUser,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 
 const SessionContext = createContext<CurrentUser | null>(null);
 export function useSession() {
@@ -79,14 +78,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         className="min-h-screen bg-slate-50 p-8"
       >
         <BatteryCharging className="mb-8 size-9 text-emerald-600" />
-        <Skeleton className="mb-4 h-8 w-64" />
-        <Skeleton className="mb-8 h-4 w-80 max-w-full" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((key) => (
-            <Skeleton key={key} className="h-32" />
-          ))}
-        </div>
-        <Skeleton className="mt-6 h-72" />
+        <p role="status" className="text-sm text-slate-500">
+          Opening workspace…
+        </p>
       </main>
     );
   return (

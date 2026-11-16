@@ -186,7 +186,6 @@ test("login reaches the real empty dashboard, module routes work, and sign out r
     ["customers", "Customers"],
     ["suppliers", "Suppliers"],
     ["accounts", "Accounts & Expenses"],
-    ["reports", "Reports"],
     ["settings", "Settings"],
     ["users", "Users & Permissions"],
   ]) {

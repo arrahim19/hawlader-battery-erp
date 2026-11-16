@@ -1,5 +1,4 @@
 "use client";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardData } from "@/lib/use-dashboard";
 import { CatalogView } from "@/components/workspace/catalog-view";
 import {
@@ -48,6 +47,7 @@ export function ReferenceWorkspace({
       moduleId !== "products" &&
       moduleId !== "inventory" &&
       moduleId !== "recycle-bin" &&
+      moduleId !== "replacements" &&
       moduleId !== "sales" &&
       moduleId !== "customers" &&
       moduleId !== "purchases",
@@ -77,14 +77,6 @@ export function ReferenceWorkspace({
         moduleError={error}
         initialCustomerId={initialCustomerId}
       />
-    );
-  if (loading)
-    return (
-      <div aria-busy="true" aria-label="Loading module" className="grid gap-5">
-        <Skeleton className="h-12" />
-        <Skeleton className="h-28" />
-        <Skeleton className="h-80" />
-      </div>
     );
   return (
     <>

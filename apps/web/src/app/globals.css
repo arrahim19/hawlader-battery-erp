@@ -79,7 +79,7 @@ textarea {
 }
 .brand {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 11px;
   padding: 14px 18px 14px 20px;
   min-height: 88px;
@@ -99,7 +99,8 @@ textarea {
 }
 .brand strong {
   display: block;
-  font-size: 20px;
+  font-size: 17px;
+  white-space: nowrap;
   line-height: 1.25;
   font-weight: 750;
   letter-spacing: -0.6px;
@@ -536,6 +537,14 @@ textarea {
   box-shadow: 0 20px 60px #07182730;
   background: #fff;
 }
+.customer-history-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, calc(100vw - 24px));
+  max-height: 90dvh;
+  overflow: hidden;
+  padding: 0;
+}
 .catalog-product-dialog {
   width: min(860px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
@@ -634,7 +643,24 @@ textarea {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 .accounts-stats {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.supplier-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.replacement-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.replacement-status {
+  min-width: 110px;
+  padding: 7px 9px;
+  border: 1px solid #d3ddec;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
 }
 .tone-blue {
   --accent: #0576ef;
@@ -1467,10 +1493,63 @@ textarea {
   gap: 16px;
   margin-bottom: 20px;
 }
-.accounts-bottom {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 245px;
-  gap: 17px;
+.expenses-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.expenses-panel .erp-panel-heading {
+  flex-shrink: 0;
+}
+.expenses-panel .erp-table-wrap {
+  flex: 1;
+}
+.expenses-table {
+  min-width: 650px;
+}
+.expenses-table th,
+.expenses-table td {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.expenses-table td:not(.expense-description) {
+  white-space: nowrap;
+}
+.expenses-table .expense-description {
+  min-width: 160px;
+  max-width: 300px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.expenses-empty {
+  flex: 1;
+  min-height: 200px;
+}
+.expense-dialog {
+  width: min(600px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+.expense-entry-grid .erp-field,
+.expense-entry-grid input,
+.expense-entry-grid select {
+  min-width: 0;
+}
+@media (max-width: 479px) {
+  .expense-dialog {
+    padding: 20px 14px;
+  }
+  .expense-entry-grid {
+    gap: 8px;
+  }
+  .expense-entry-grid .erp-field {
+    font-size: 11px;
+  }
+  .expense-entry-grid input,
+  .expense-entry-grid select {
+    font-size: 11px;
+    padding-inline: 4px;
+  }
 }
 .donut-layout {
   display: flex;
@@ -1520,22 +1599,6 @@ textarea {
   margin-left: auto;
   color: #8b95a5;
 }
-.quick-action-list {
-  display: grid;
-  gap: 2px;
-  padding: 5px 15px 15px;
-}
-.quick-action-list button,
-.quick-action-list a {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-start;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  font-size: 12px;
-  color: #182132;
-}
 .login-grid {
   background-image:
     linear-gradient(#ffffff04 1px, transparent 1px),
@@ -1560,7 +1623,7 @@ textarea {
     gap: 8px;
   }
   .brand strong {
-    font-size: 19px;
+    font-size: 16px;
   }
   .brand small {
     font-size: 9px;
@@ -1677,9 +1740,6 @@ textarea {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 25px;
-  }
-  .accounts-bottom {
-    grid-template-columns: minmax(0, 1fr) 225px;
   }
 }
 @media (max-width: 1023px) {
@@ -1929,9 +1989,6 @@ textarea {
   .erp-details dl {
     grid-template-columns: 1fr;
   }
-  .accounts-bottom {
-    grid-template-columns: 1fr;
-  }
   .accounts-chart-grid {
     gap: 14px;
   }
@@ -1949,7 +2006,6 @@ textarea {
     font-size: 9px;
   }
 }
-/* Keep the dashboard within the available viewport; other modules retain their layouts. */
 .dashboard-shell .app-body {
   height: 100dvh;
   display: flex;
@@ -2022,25 +2078,40 @@ textarea {
   margin: 0;
 }
 .dashboard-page .erp-stats[data-finance="true"] {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-.dashboard-page .erp-stat {
+.dashboard-page .erp-stat,
+.replacement-stats .erp-stat,
+.supplier-stats .erp-stat,
+.accounts-stats .erp-stat {
   min-height: 0;
   padding: clamp(9px, 1.5dvh, 15px) 12px;
   gap: 10px;
 }
-.dashboard-page .erp-stat-icon {
+.dashboard-page .erp-stat-icon,
+.replacement-stats .erp-stat-icon,
+.supplier-stats .erp-stat-icon,
+.accounts-stats .erp-stat-icon {
   width: 36px;
   height: 36px;
 }
-.dashboard-page .erp-stat-icon svg {
+.dashboard-page .erp-stat-icon svg,
+.replacement-stats .erp-stat-icon svg,
+.supplier-stats .erp-stat-icon svg,
+.accounts-stats .erp-stat-icon svg {
   width: 23px;
   height: 23px;
 }
-.dashboard-page .erp-stat-label {
+.dashboard-page .erp-stat-label,
+.replacement-stats .erp-stat-label,
+.supplier-stats .erp-stat-label,
+.accounts-stats .erp-stat-label {
   font-size: 12px;
 }
-.dashboard-page .erp-stat-value {
+.dashboard-page .erp-stat-value,
+.replacement-stats .erp-stat-value,
+.supplier-stats .erp-stat-value,
+.accounts-stats .erp-stat-value {
   margin-top: 3px;
   font-size: 16px;
 }
@@ -2201,11 +2272,17 @@ textarea {
     grid-column: 1 / -1;
     justify-content: flex-end;
   }
-  .dashboard-page .erp-stat {
+  .dashboard-page .erp-stat,
+  .replacement-stats .erp-stat,
+  .supplier-stats .erp-stat,
+  .accounts-stats .erp-stat {
     padding-inline: 9px;
     gap: 7px;
   }
-  .dashboard-page .erp-stat-icon {
+  .dashboard-page .erp-stat-icon,
+  .replacement-stats .erp-stat-icon,
+  .supplier-stats .erp-stat-icon,
+  .accounts-stats .erp-stat-icon {
     width: 29px;
     height: 29px;
   }
@@ -2240,7 +2317,10 @@ textarea {
     scrollbar-width: thin;
     padding-bottom: 4px;
   }
-  .dashboard-page .erp-stat {
+  .dashboard-page .erp-stat,
+  .replacement-stats .erp-stat,
+  .supplier-stats .erp-stat,
+  .accounts-stats .erp-stat {
     flex: 0 0 165px;
     scroll-snap-align: start;
     padding: 8px;
@@ -2276,13 +2356,19 @@ textarea {
   .top-header {
     height: 46px;
   }
-  .dashboard-page .erp-stat {
+  .dashboard-page .erp-stat,
+  .replacement-stats .erp-stat,
+  .supplier-stats .erp-stat,
+  .accounts-stats .erp-stat {
     padding-block: 7px;
   }
   .dashboard-page .erp-stat-caption {
     line-height: 1.3;
   }
-  .dashboard-page .erp-stat-value {
+  .dashboard-page .erp-stat-value,
+  .replacement-stats .erp-stat-value,
+  .supplier-stats .erp-stat-value,
+  .accounts-stats .erp-stat-value {
     font-size: 16px;
     line-height: 1.15;
   }
@@ -2303,7 +2389,6 @@ textarea {
     height: 20px;
   }
 }
-/* Purchase receiving fits the viewport; longer carts and battery identities use pages. */
 .purchase-shell .app-body {
   height: 100dvh;
   display: flex;
@@ -2505,6 +2590,7 @@ textarea {
   margin-block: 10px;
 }
 .purchase-page .purchase-basics {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   gap: 10px;
 }
 .purchase-page .erp-field {
@@ -2588,7 +2674,7 @@ textarea {
 .purchase-cart-body .erp-table-wrap {
   width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
 }
 .purchase-cart-body .erp-table {
@@ -2597,7 +2683,25 @@ textarea {
 }
 .purchase-cart-body .purchase-recent-table {
   width: 100%;
-  min-width: 0;
+  min-width: 1200px;
+}
+.purchase-page .purchase-recent-table .purchase-details-cell {
+  width: 112px;
+  min-width: 112px;
+  white-space: nowrap;
+}
+.purchase-page .purchase-recent-table .purchase-action-cell {
+  width: 52px;
+  min-width: 52px;
+  text-align: center;
+  white-space: nowrap;
+}
+.purchase-page .purchase-recent-table .purchase-details-button {
+  width: auto;
+  min-width: 92px;
+  height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 .purchase-page .purchase-cart-body .purchase-recent-table th,
 .purchase-page .purchase-cart-body .purchase-recent-table td {
@@ -2766,6 +2870,13 @@ textarea {
   .purchase-page .purchase-recent-table,
   .purchase-recent-table tbody {
     display: block;
+    min-width: 0;
+  }
+  .purchase-page .purchase-recent-table .purchase-details-cell,
+  .purchase-page .purchase-recent-table .purchase-action-cell {
+    width: auto;
+    min-width: 0;
+    text-align: left;
   }
   .purchase-recent-table colgroup,
   .purchase-recent-table thead {
@@ -3152,6 +3263,699 @@ textarea {
     width: 100%;
   }
 }
+.sales-entry-shell .app-body {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sales-entry-shell .top-header,
+.sales-entry-shell .preview-banner {
+  flex-shrink: 0;
+}
+.sales-entry-shell .main-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 0;
+  width: 100%;
+}
+.sales-entry-shell .page-footer {
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding: 4px 0;
+  font-size: 9px;
+}
+.sales-entry-workspace,
+.sales-entry-workspace .sales-form {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sales-entry-workspace > .erp-tabs {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+}
+.sales-entry-workspace .erp-tab {
+  height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.sales-entry-workspace .sales-fieldset {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.sales-entry-workspace .sales-layout {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  gap: 10px;
+}
+.sales-entry-workspace .sales-main {
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+}
+.sales-entry-workspace .sales-side {
+  align-content: start;
+  gap: 8px;
+}
+.sales-entry-workspace .erp-panel-heading {
+  min-height: 32px;
+  padding: 7px 12px 4px;
+}
+.sales-entry-workspace .erp-panel-heading h2 {
+  font-size: 14px;
+}
+.sales-entry-workspace .erp-form-body {
+  padding: 7px 12px 10px;
+}
+.sales-entry-workspace .erp-field {
+  gap: 4px;
+  font-size: 11px;
+}
+.sales-entry-workspace .erp-field input,
+.sales-entry-workspace .erp-field select {
+  height: 33px;
+  min-height: 33px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.sales-entry-workspace button {
+  min-height: 30px;
+}
+.sales-entry-workspace .sales-customer-fields {
+  gap: 10px;
+}
+.sales-entry-workspace .sales-customer-fields .erp-inline-field > button {
+  height: 33px;
+  font-size: 11px;
+  padding-inline: 10px;
+}
+.sales-entry-workspace .sales-customer-contact,
+.sales-entry-workspace .sales-stock-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  min-height: 14px;
+  line-height: 14px;
+}
+.sales-entry-workspace .sales-product-fields {
+  grid-template-columns:
+    minmax(0, 1fr) minmax(0, 1.5fr) minmax(48px, 0.45fr)
+    minmax(70px, 0.7fr) minmax(70px, 0.7fr);
+  gap: 8px;
+}
+.sales-entry-workspace .sales-product-fields .erp-field {
+  grid-column: auto;
+}
+.sales-entry-workspace .sales-cart-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sales-entry-workspace .sales-cart-panel .erp-panel-heading {
+  flex-shrink: 0;
+}
+.sales-entry-workspace .sales-cart-panel .erp-panel-heading button {
+  height: 28px;
+  font-size: 10px;
+  padding: 3px 8px;
+}
+.sales-entry-workspace .sales-cart-body {
+  flex: 1;
+  min-height: 0;
+}
+.sales-entry-workspace .sales-cart-body .erp-table-wrap {
+  height: 100%;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: auto;
+}
+.sales-entry-workspace .sales-cart-body .erp-table {
+  min-width: 640px;
+}
+.sales-entry-workspace .sales-cart-body .erp-table th {
+  height: 32px;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.sales-entry-workspace .sales-cart-body .erp-table td {
+  height: 44px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.sales-entry-workspace .sales-cart-body .erp-table td button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+.sales-entry-workspace .sales-cart-body .erp-table td:not(:first-child) {
+  white-space: nowrap;
+}
+.sales-entry-workspace .sales-history-body .erp-table {
+  min-width: 760px;
+}
+.sales-entry-workspace .sales-history-body .erp-table td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sales-entry-workspace .sales-cart-body .erp-table td:first-child,
+.sales-entry-workspace .sales-cart-body .erp-table td:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sales-entry-workspace .sales-cart-empty {
+  inset: 32px 8px 0;
+  padding: 8px;
+}
+.sales-entry-workspace .sales-cart-empty > svg {
+  width: 24px;
+  height: 24px;
+}
+.sales-entry-workspace .sales-cart-empty p {
+  font-size: 12px;
+  margin-top: 6px;
+}
+.sales-entry-workspace .sales-cart-empty span {
+  font-size: 10px;
+}
+.sales-entry-workspace .sales-items-pager {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  margin: 0;
+  font-size: 10px;
+}
+.sales-entry-workspace .sales-items-pager button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+.sales-entry-workspace .erp-summary-title {
+  padding: 8px 10px;
+  margin: 10px 10px 0;
+  font-size: 14px;
+}
+.sales-entry-workspace .erp-summary-title svg {
+  width: 20px;
+  height: 20px;
+}
+.sales-entry-workspace .erp-summary-rows {
+  padding: 0 12px;
+}
+.sales-entry-workspace .erp-summary-rows > div {
+  padding: 8px 0;
+  font-size: 12px;
+}
+.sales-entry-workspace .erp-summary-total {
+  margin: 4px 10px 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.sales-entry-workspace .sales-payment-fields {
+  gap: 8px;
+}
+.sales-entry-workspace .sales-partial-payment-fields {
+  gap: 8px;
+}
+.sales-entry-workspace .sales-actions {
+  flex-shrink: 0;
+  margin: 0;
+  gap: 8px;
+}
+.sales-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sales-confirm-actions button {
+  height: 36px;
+  padding-inline: 14px;
+  font-size: 12px;
+}
+.sales-mobile-panels {
+  display: none;
+}
+.sales-notes-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+.sales-notes-dialog textarea {
+  resize: none;
+  min-height: 100px;
+  max-height: 30dvh;
+}
+.transaction-delete-dialog {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+@media (max-width: 1199px) and (min-width: 1024px) {
+  .sales-entry-workspace .sales-layout {
+    grid-template-columns: minmax(0, 1fr) 250px;
+  }
+  .sales-entry-workspace .sales-product-fields {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .sales-entry-workspace .sales-product-fields .sales-type-field,
+  .sales-entry-workspace .sales-product-fields .sales-product-field {
+    grid-column: span 3;
+  }
+  .sales-entry-workspace .sales-product-fields .sales-qty-field,
+  .sales-entry-workspace .sales-product-fields .sales-price-field,
+  .sales-entry-workspace .sales-product-fields .sales-total-field {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 1023px) {
+  .sales-entry-shell .main-content {
+    padding: 6px 10px 0;
+  }
+  .sales-entry-shell .page-footer {
+    font-size: 8px;
+  }
+  .sales-mobile-panels {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .sales-mobile-panels button {
+    flex: 1;
+    border: 1px solid #dce5ef;
+    border-radius: 7px;
+    background: white;
+    padding: 5px;
+    font-size: 12px;
+  }
+  .sales-mobile-panels button[aria-pressed="true"] {
+    background: #edf9f0;
+    border-color: #98d3a8;
+    color: #008c31;
+    font-weight: 600;
+  }
+  .sales-entry-workspace .sales-main {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .sales-entry-workspace .sales-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sales-entry-workspace .sales-layout[data-panel="details"] .sales-cart-panel,
+  .sales-entry-workspace .sales-layout:not([data-panel="payment"]) .sales-side,
+  .sales-entry-workspace .sales-layout[data-panel="payment"] .sales-main,
+  .sales-entry-workspace
+    .sales-layout[data-panel="items"]
+    .sales-customer-panel,
+  .sales-entry-workspace
+    .sales-layout[data-panel="items"]
+    .sales-products-panel {
+    display: none;
+  }
+  .sales-entry-workspace .sales-layout[data-panel="items"] .sales-main {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .sales-entry-workspace .sales-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sales-entry-workspace .sales-customer-fields {
+    grid-template-columns: minmax(0, 1fr) 125px;
+    gap: 8px;
+  }
+  .sales-entry-workspace .sales-customer-fields .erp-inline-field {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .sales-entry-workspace .sales-customer-fields .erp-inline-field > .erp-field {
+    flex-basis: 100%;
+  }
+  .sales-entry-workspace .sales-customer-fields .erp-inline-field > button {
+    width: auto;
+  }
+  .sales-entry-workspace .sales-product-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .sales-entry-workspace .sales-product-fields .sales-type-field,
+  .sales-entry-workspace .sales-product-fields .sales-product-field {
+    grid-column: 1 / -1;
+  }
+  .sales-entry-workspace .sales-actions > span {
+    display: none;
+  }
+  .sales-confirm-actions {
+    width: 100%;
+  }
+  .sales-confirm-actions button {
+    flex: 1;
+  }
+}
+@media (max-height: 700px) {
+  .sales-entry-workspace .sales-customer-contact,
+  .sales-entry-workspace .sales-stock-hint {
+    display: none;
+  }
+  .sales-entry-workspace .erp-panel-heading {
+    padding-block: 5px 3px;
+    min-height: 26px;
+  }
+  .sales-entry-workspace .erp-form-body {
+    padding-block: 5px 7px;
+  }
+  .sales-entry-workspace .sales-cart-body .erp-table td {
+    height: 38px;
+  }
+  .sales-entry-workspace .erp-summary-rows > div {
+    padding-block: 6px;
+  }
+}
+.accounts-shell .app-body {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.accounts-shell .top-header,
+.accounts-shell .preview-banner {
+  flex-shrink: 0;
+}
+.accounts-shell .main-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 16px 0;
+}
+.accounts-shell .page-footer {
+  flex-shrink: 0;
+  padding: 4px 0;
+  margin-top: 4px;
+  font-size: 9px;
+}
+.accounts-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.accounts-workspace > .erp-tabs {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+}
+.accounts-workspace .erp-tab {
+  height: 32px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+.accounts-workspace .accounts-stats {
+  flex-shrink: 0;
+  margin: 0;
+}
+.accounts-workspace .accounts-chart-grid {
+  flex: 0 1 400px;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "expenses transactions categories";
+  gap: 10px;
+  margin: 0;
+}
+.accounts-workspace .expenses-panel {
+  grid-area: expenses;
+}
+.accounts-workspace .accounts-category-panel {
+  grid-area: categories;
+}
+.accounts-workspace .accounts-transactions-panel {
+  grid-area: transactions;
+}
+.accounts-workspace .accounts-chart-grid > .erp-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.accounts-workspace .erp-panel-heading {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 6px 12px;
+}
+.accounts-workspace .erp-panel-heading h2 {
+  font-size: 14px;
+}
+.accounts-workspace .erp-panel-heading h2 > svg {
+  width: 18px;
+  height: 18px;
+}
+.accounts-workspace .erp-panel-heading button,
+.accounts-workspace .erp-panel-heading a {
+  height: 28px;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+.accounts-workspace .expenses-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.accounts-workspace .expenses-body > .erp-table-wrap {
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.accounts-workspace .expenses-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.accounts-workspace .erp-table th {
+  height: 30px;
+  padding: 5px 10px;
+  font-size: 11px;
+  text-align: center;
+}
+.accounts-workspace .erp-table td {
+  height: 32px;
+  padding: 5px 10px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.accounts-workspace .erp-table :is(th, td):first-child {
+  text-align: left;
+}
+.accounts-workspace .expenses-table .expense-description {
+  min-width: 0;
+  white-space: nowrap;
+}
+.accounts-workspace .expenses-table th:last-child,
+.accounts-workspace .expenses-table td:last-child,
+.accounts-workspace .accounts-transactions-panel .erp-table th:last-child,
+.accounts-workspace .accounts-transactions-panel .erp-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.accounts-workspace .expenses-empty {
+  position: absolute;
+  inset: 30px 8px 0;
+  min-height: 0;
+  padding: 8px;
+  pointer-events: none;
+}
+.accounts-workspace .expenses-empty > svg,
+.accounts-workspace .erp-empty > svg {
+  width: 24px;
+  height: 24px;
+}
+.accounts-workspace .expenses-empty p,
+.accounts-workspace .erp-empty p {
+  font-size: 12px;
+  margin-top: 5px;
+}
+.accounts-workspace .expenses-empty span,
+.accounts-workspace .erp-empty span {
+  font-size: 10px;
+}
+.accounts-workspace .erp-pager {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px 8px;
+  min-height: 32px;
+  font-size: 10px;
+}
+.accounts-workspace .erp-pager button {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+}
+.accounts-workspace .donut-layout {
+  flex: none;
+  min-height: 0;
+  padding: 12px;
+  gap: 12px;
+  flex-direction: row;
+  justify-content: flex-start;
+}
+.accounts-workspace .empty-donut {
+  order: 2;
+  flex-shrink: 0;
+  width: clamp(144px, 12vw, 184px);
+  height: auto;
+  aspect-ratio: 1;
+  margin-inline: auto;
+  border-width: 16px;
+}
+.accounts-workspace .empty-donut strong {
+  font-size: 16px;
+}
+.accounts-workspace .empty-donut small {
+  font-size: 10px;
+}
+.accounts-workspace .donut-legend {
+  flex: 0 1 180px;
+  min-width: 0;
+  gap: 8px;
+  font-size: 10px;
+}
+.accounts-workspace .donut-legend > div {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 3px 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  --tint: #eff7ff;
+  border: 1px solid #dbeafe;
+  background: linear-gradient(120deg, #fff 5%, var(--tint) 100%);
+  box-shadow: 0 2px 4px #172b4d07;
+}
+.accounts-workspace .donut-legend > div:nth-child(2) {
+  --tint: #fff7ed;
+  border-color: #ffead1;
+}
+.accounts-workspace .donut-legend > div:nth-child(3) {
+  --tint: #f7f1ff;
+  border-color: #eee3fa;
+}
+.accounts-workspace .donut-legend i {
+  width: 8px;
+  height: 8px;
+  grid-row: span 2;
+}
+.accounts-workspace .donut-legend span:last-child {
+  grid-column: 2;
+  margin-left: 0;
+  font-weight: 600;
+  color: #334155;
+}
+.accounts-workspace .accounts-chart-grid > .erp-panel > p {
+  display: none;
+}
+.accounts-workspace .accounts-transactions-panel > .erp-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.accounts-workspace .accounts-transactions-panel .erp-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.accounts-workspace .erp-empty-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.accounts-workspace .erp-empty-table > .erp-table-wrap {
+  flex-shrink: 0;
+}
+.accounts-workspace .erp-empty-table .erp-empty {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+}
+.accounts-mobile-panels {
+  display: none;
+}
+@media (max-width: 1023px), (max-height: 560px) {
+  .accounts-shell .main-content {
+    padding: 6px 10px 0;
+  }
+  .accounts-shell .page-footer {
+    font-size: 8px;
+  }
+  .accounts-workspace .accounts-stats {
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+  }
+  .accounts-workspace .accounts-stats .erp-stat {
+    flex: 0 0 165px;
+  }
+  .accounts-mobile-panels {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .accounts-mobile-panels button {
+    flex: 1;
+    min-width: 0;
+    min-height: 30px;
+    padding: 5px 3px;
+    border: 1px solid #dce5ef;
+    border-radius: 7px;
+    background: white;
+    font-size: 11px;
+  }
+  .accounts-mobile-panels button[aria-pressed="true"] {
+    background: #edf9f0;
+    color: #008c31;
+    border-color: #98d3a8;
+    font-weight: 600;
+  }
+  .accounts-workspace .accounts-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+    flex: 1;
+    grid-template-areas: none;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .accounts-workspace .accounts-chart-grid > .erp-panel {
+    grid-area: auto;
+  }
+  .accounts-workspace[data-panel="expenses"]
+    .accounts-chart-grid
+    > :not(.expenses-panel),
+  .accounts-workspace[data-panel="categories"]
+    .accounts-chart-grid
+    > :not(.accounts-category-panel),
+  .accounts-workspace[data-panel="transactions"]
+    .accounts-chart-grid
+    > :not(.accounts-transactions-panel) {
+    display: none;
+  }
+}
+@media (max-height: 650px) {
+  .accounts-workspace {
+    gap: 6px;
+  }
+  .accounts-workspace .erp-panel-heading {
+    min-height: 28px;
+    padding-block: 4px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
@@ -3161,7 +3965,6 @@ textarea {
   }
 }
 
-/* Inventory stays within the viewport while its lists remain accessible. */
 .inventory-shell .app-body {
   height: 100dvh;
   display: flex;

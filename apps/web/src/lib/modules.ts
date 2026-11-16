@@ -60,13 +60,6 @@ export const modules: Record<
     phase: 4,
     columns: ["Reference", "Date", "Account", "Amount", "Type"],
   },
-  reports: {
-    title: "Reports",
-    description:
-      "Understand stock, sales, replacements, and business performance.",
-    phase: 6,
-    columns: ["Report", "Period", "Format", "Status"],
-  },
   settings: {
     title: "Settings",
     description: "Shop identity, invoice preferences, and warranty policies.",
@@ -75,7 +68,8 @@ export const modules: Record<
   },
   "recycle-bin": {
     title: "Recycle Bin",
-    description: "Deleted suppliers can be restored here.",
+    description:
+      "Restore deleted sales, purchases and suppliers or permanently remove them from the Bin.",
     phase: 3,
     columns: ["Name", "Type", "Deleted at", "Action"],
   },

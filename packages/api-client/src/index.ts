@@ -47,6 +47,30 @@ export interface CustomerList {
     totalDue: string;
   };
 }
+export interface CustomerSalesHistory {
+  customer: CustomerRecord;
+  total: number;
+  page: number;
+  pageSize: number;
+  items: {
+    id: string;
+    invoiceNumber: string | null;
+    soldAt: string | null;
+    status: string;
+    subtotal: string;
+    discount: string;
+    total: string;
+    products: {
+      id: string;
+      name: string;
+      model: string;
+      quantity: string;
+      unit: string;
+      unitPrice: string;
+      amount: string;
+    }[];
+  }[];
+}
 export type ProductTrackingKind = "BATTERY_UNIT" | "QUANTITY";
 export interface ProductTypeRecord {
   id: string;
@@ -154,6 +178,7 @@ export interface SalesList {
   pageSize: number;
 }
 export interface ReceivedPurchase {
+  transportAmount?: string;
   id: string;
   number: string;
   receiptId: string;
@@ -203,6 +228,71 @@ export interface RecentPurchases {
     }[];
   }[];
 }
+export interface ExpenseRecord {
+  challanNumber?: string | null;
+  id: string;
+  expenseId: string | null;
+  date: string;
+  description: string;
+  category: string;
+  amount: string;
+  paymentAccount: string;
+  source: "MANUAL" | "PURCHASE_TRANSPORT" | "OTHER";
+}
+export interface ExpenseList {
+  items: ExpenseRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: { total: string; byCategory: { name: string; amount: string }[] };
+}
+export interface ExpenseOptions {
+  categories: string[];
+  cashAvailable: boolean;
+  paymentAccounts: { id: string; name: string; paymentMethod: string | null }[];
+}
+
+export const replacementStatuses = [
+  "FAULTY",
+  "SENT",
+  "RECEIVED",
+  "DELIVERED",
+] as const;
+export type ReplacementStage = (typeof replacementStatuses)[number];
+export interface ReplacementCase {
+  id: string;
+  number: string;
+  status: ReplacementStage;
+  version: number;
+  product: string;
+  serial: string;
+  customer: string | null;
+  phone: string | null;
+  invoice: string | null;
+  supplier: string;
+  createdAt: string;
+  sentAt: string | null;
+}
+export interface ReplacementList {
+  items: ReplacementCase[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: Record<ReplacementStage, number>;
+}
+export interface ReplacementOptions {
+  units: {
+    id: string;
+    productId: string;
+    saleUnitId: string | null;
+    label: string;
+    supplierId: string | null;
+    customer: string | null;
+    invoice: string | null;
+  }[];
+  suppliers: { id: string; name: string }[];
+}
+
 export interface DashboardData {
   businessDate: string;
   from: string;
@@ -218,8 +308,28 @@ export interface DashboardData {
     lowStock: number;
   };
   financials?: {
+    transportExpenses?: string;
+    companyTransactionCount?: number;
+    companyTransactionAmount?: string;
+    companyTransactions?: {
+      id: string;
+      date: string;
+      company: string;
+      challanNumber: string | null;
+      type: "Payment" | "Refund";
+      amount: string;
+    }[];
+    transportTransactions?: {
+      challanNumber?: string | null;
+      id: string;
+      date: string;
+      description: string;
+      amount: string;
+    }[];
     availableStockPurchaseValue: string;
     todaySales: string;
+    salesIncome?: string;
+    salesProfit?: string;
     todayPurchases: string;
     todayCashReceived: string;
     grossProfit: string;

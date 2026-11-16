@@ -6,6 +6,11 @@ import type {
 } from "../../../../packages/api-client/src";
 export type { CurrentUser, DashboardData, SupplierList, SupplierRecord };
 export type {
+  CustomerSalesHistory,
+  ReplacementStage,
+  ReplacementCase,
+  ReplacementList,
+  ReplacementOptions,
   CatalogMetadata,
   CatalogProduct,
   ProductList,
@@ -20,6 +25,9 @@ export type {
   SalesOptions,
   CompletedSale,
   SalesList,
+  ExpenseRecord,
+  ExpenseList,
+  ExpenseOptions,
 } from "../../../../packages/api-client/src";
 export const SESSION_EXPIRED_EVENT = "hawlader:session-expired";
 export class ApiError extends Error {

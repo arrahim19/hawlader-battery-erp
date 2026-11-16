@@ -16,7 +16,6 @@ import { FilterBar } from "@/components/filter-bar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -256,69 +255,61 @@ export function ModulePage({
             filter={filter}
             onFilter={setFilter}
           />
-          {loading ? (
-            <div
-              aria-busy="true"
-              aria-label="Loading module"
-              className="space-y-3 p-5"
-            >
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
+          <Table aria-busy={loading}>
+            <TableHeader>
+              <TableRow>
+                {config.columns.map((column) => (
+                  <TableHead key={column}>{column}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
                 <TableRow>
-                  {config.columns.map((column) => (
-                    <TableHead key={column}>{column}</TableHead>
-                  ))}
+                  <TableCell colSpan={config.columns.length}>
+                    <span role="status">Loading records…</span>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {module === "users" && filtered.length && !denied ? (
-                  filtered.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-semibold">
-                        {row.name}
-                      </TableCell>
-                      <TableCell>{row.login}</TableCell>
-                      <TableCell>
-                        {row.roles.map((entry) => entry.role.name).join(", ")}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={row.active ? "default" : "secondary"}>
-                          {row.active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell className="p-0" colSpan={config.columns.length}>
-                      <EmptyState
-                        icon={denied ? LockKeyhole : Package}
-                        title={
-                          denied
-                            ? "Access is restricted"
-                            : search
-                              ? "No matching records"
-                              : "No records to display"
-                        }
-                        description={
-                          preview
-                            ? "This is a layout preview. Sign in to access your real workspace."
-                            : module === "users"
-                              ? "No configured users match these filters."
-                              : `Business operations will be connected in Phase ${config.phase}. This table does not contain sample records.`
-                        }
-                      />
+              ) : module === "users" && filtered.length && !denied ? (
+                filtered.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-semibold">{row.name}</TableCell>
+                    <TableCell>{row.login}</TableCell>
+                    <TableCell>
+                      {row.roles.map((entry) => entry.role.name).join(", ")}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={row.active ? "default" : "secondary"}>
+                        {row.active ? "Active" : "Inactive"}
+                      </Badge>
                     </TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell className="p-0" colSpan={config.columns.length}>
+                    <EmptyState
+                      icon={denied ? LockKeyhole : Package}
+                      title={
+                        denied
+                          ? "Access is restricted"
+                          : search
+                            ? "No matching records"
+                            : "No records to display"
+                      }
+                      description={
+                        preview
+                          ? "This is a layout preview. Sign in to access your real workspace."
+                          : module === "users"
+                            ? "No configured users match these filters."
+                            : `Business operations will be connected in Phase ${config.phase}. This table does not contain sample records.`
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 text-[11px] text-slate-400">
             <span>
               {module === "users" && !preview

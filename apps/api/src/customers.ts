@@ -5,6 +5,9 @@ import {
   ForbiddenException,
   Get,
   Inject,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -17,6 +20,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -53,6 +57,11 @@ class CustomersQueryDto {
   @IsIn(["all", "due", "clear"]) credit = "all";
   @Type(() => Number) @IsInt() @Min(1) @Max(100000) page = 1;
   @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 10;
+}
+class CustomerSalesQueryDto {
+  @IsOptional() @IsUUID() saleId?: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100000) page = 1;
+  @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize = 10;
 }
 const validation = (expectedType: new () => object) =>
   new ValidationPipe({
@@ -135,6 +144,78 @@ function checkAccess(req: AuthRequest) {
 @Controller("customers")
 export class CustomersController {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
+
+  @Get(":id/sales")
+  async salesHistory(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query(validation(CustomerSalesQueryDto)) query: CustomerSalesQueryDto,
+    @Req() req: AuthRequest,
+  ) {
+    checkAccess(req);
+    const customer = await this.db.customer.findUnique({
+      where: { id },
+      select: customerFields,
+    });
+    if (!customer) throw new NotFoundException("Customer not found.");
+    const where: Prisma.SaleWhereInput = {
+      ...(query.saleId ? { id: query.saleId } : {}),
+      customerId: id,
+      status: { in: [...postedSales] },
+    };
+    const [rows, total] = await this.db.$transaction([
+      this.db.sale.findMany({
+        where,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        orderBy: [{ soldAt: "desc" }, { id: "desc" }],
+        include: {
+          items: {
+            orderBy: { lineNumber: "asc" },
+            include: {
+              product: { select: { name: true, model: true, unit: true } },
+            },
+          },
+        },
+      }),
+      this.db.sale.count({ where }),
+    ]);
+    return {
+      data: {
+        customer: (await customerRecords(this.db, [customer]))[0],
+        total,
+        page: query.page,
+        pageSize: query.pageSize,
+        items: rows.map((sale) => ({
+          id: sale.id,
+          invoiceNumber: sale.invoiceNumber,
+          soldAt: sale.soldAt?.toISOString() ?? null,
+          status: sale.status,
+          subtotal: sale.subtotal.toFixed(2),
+          discount: sale.discount.toFixed(2),
+          total: sale.total.toFixed(2),
+          products: sale.items.map((item) => {
+            const snapshot =
+              item.productSnapshot &&
+              typeof item.productSnapshot === "object" &&
+              !Array.isArray(item.productSnapshot)
+                ? item.productSnapshot
+                : {};
+            const text = (key: string, fallback: string) =>
+              typeof snapshot[key] === "string" ? snapshot[key] : fallback;
+            return {
+              id: item.id,
+              name: text("name", item.product.name),
+              model: text("model", item.product.model),
+              unit: text("unit", item.product.unit),
+              quantity: item.quantity.toString(),
+              unitPrice: item.unitPrice.toFixed(2),
+              amount: item.netRevenue.toFixed(2),
+            };
+          }),
+        })),
+      },
+    };
+  }
 
   @Get()
   async list(

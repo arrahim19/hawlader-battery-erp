@@ -1,4 +1,7 @@
-import { productCategoryCodes } from "./product-categories";
+import {
+  orderProductCategories,
+  productCategoryCodes,
+} from "./product-categories";
 import { createHash, randomUUID } from "node:crypto";
 import {
   BadRequestException,
@@ -56,6 +59,7 @@ class ReceivePurchaseDto {
   @Type(() => ReceiveItemDto)
   items!: ReceiveItemDto[];
   @Matches(/^\d{1,18}(?:\.\d{1,2})?$/) paidAmount = "0.00";
+  @Matches(/^\d{1,14}(?:\.\d{1,2})?$/) transportAmount = "0.00";
   @IsOptional() @IsUUID() paymentAccountId?: string;
 }
 class PurchaseListDto {
@@ -113,7 +117,7 @@ export class PurchasesController {
         }),
         this.db.productType.findMany({
           where: { active: true, code: { in: productCategoryCodes } },
-          select: { id: true, name: true, trackingKind: true },
+          select: { id: true, name: true, trackingKind: true, code: true },
           orderBy: { name: "asc" },
         }),
         this.db.supplier.findMany({
@@ -153,7 +157,9 @@ export class PurchasesController {
               0,
           }),
         ),
-        types,
+        types: orderProductCategories(types).map(
+          ({ id, name, trackingKind }) => ({ id, name, trackingKind }),
+        ),
         productNames: names.flatMap((name) =>
           name.types
             .filter((link) => types.some((type) => type.id === link.typeId))
@@ -234,6 +240,7 @@ export class PurchasesController {
   async list(@Query(validation(PurchaseListDto)) query: PurchaseListDto) {
     const [purchases, total] = await this.db.$transaction([
       this.db.purchase.findMany({
+        where: { status: { not: "CANCELLED" } },
         select: {
           id: true,
           number: true,
@@ -265,7 +272,7 @@ export class PurchasesController {
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),
-      this.db.purchase.count(),
+      this.db.purchase.count({ where: { status: { not: "CANCELLED" } } }),
     ]);
     return {
       data: {
@@ -314,9 +321,13 @@ export class PurchasesController {
       throw new BadRequestException("A UUID Idempotency-Key is required.");
     businessRange(body.purchaseDate, body.purchaseDate);
     const paid = new Prisma.Decimal(body.paidAmount);
-    if (paid.gt(0) && !req.currentUser!.permissions.includes("finance.write"))
+    const transport = new Prisma.Decimal(body.transportAmount);
+    if (
+      (paid.gt(0) || transport.gt(0)) &&
+      !req.currentUser!.permissions.includes("finance.write")
+    )
       throw new ForbiddenException(
-        "Recording supplier payments requires finance permission.",
+        "Recording payments or transport expenses requires finance permission.",
       );
     if (
       new Set(body.items.map((item) => item.productId)).size !==
@@ -348,6 +359,14 @@ export class PurchasesController {
           },
         });
         if (prior) {
+          const previousPurchase = await tx.purchase.findFirst({
+            where: { receipts: { some: { id: prior.sourceId } } },
+            select: { status: true },
+          });
+          if (previousPurchase?.status === "CANCELLED")
+            throw new ConflictException(
+              "This purchase was deleted. Start a new purchase instead of retrying it.",
+            );
           if (prior.requestHash !== requestHash)
             throw new ConflictException(
               "This purchase was already submitted with different details. Reload the purchase list.",
@@ -388,18 +407,32 @@ export class PurchasesController {
             "Purchase accounts are not configured. Contact the administrator.",
           );
         const paymentAccount =
-          paid.gt(0) && body.paymentAccountId
+          (paid.gt(0) || transport.gt(0)) && body.paymentAccountId
             ? await tx.account.findUnique({
                 where: { id: body.paymentAccountId },
               })
             : null;
         if (
-          paid.gt(0) &&
+          (paid.gt(0) || transport.gt(0)) &&
           (!paymentAccount?.active ||
             paymentAccount.kind !== "ASSET" ||
             !paymentAccount.paymentMethod)
         )
           throw new BadRequestException("Choose an active payment method.");
+        const transportAccount = transport.gt(0)
+          ? await tx.account.upsert({
+              where: { code: "5200" },
+              create: { code: "5200", name: "Transport", kind: "EXPENSE" },
+              update: {},
+            })
+          : null;
+        if (
+          transportAccount &&
+          (!transportAccount.active || transportAccount.kind !== "EXPENSE")
+        )
+          throw new BadRequestException(
+            "Transport expense account is not configured.",
+          );
         let unitCount = 0;
         for (const item of body.items) {
           const product = products.find(
@@ -425,7 +458,11 @@ export class PurchasesController {
             orderDate: new Date(body.purchaseDate),
             supplierReference: body.reference || null,
             status: "RECEIVED",
-            costPlan: { notes: body.notes ?? "", mode: "DIRECT_RECEIVE" },
+            costPlan: {
+              notes: body.notes ?? "",
+              mode: "DIRECT_RECEIVE",
+              transportAmount: transport.toFixed(2),
+            },
           },
         });
         const posting = await tx.posting.create({
@@ -528,7 +565,7 @@ export class PurchasesController {
             });
           }
         }
-        if (total.gt(0))
+        if (total.gt(0) || transport.gt(0))
           await tx.journalEntry.create({
             data: {
               postingId: posting.id,
@@ -536,13 +573,31 @@ export class PurchasesController {
               reason: "Purchase receipt " + purchase.number,
               lines: {
                 create: [
-                  { accountId: inventory!.id, debit: total, credit: 0 },
-                  {
-                    accountId: payable!.id,
-                    supplierId: supplier.id,
-                    debit: 0,
-                    credit: total,
-                  },
+                  ...(total.gt(0)
+                    ? [
+                        { accountId: inventory!.id, debit: total, credit: 0 },
+                        {
+                          accountId: payable!.id,
+                          supplierId: supplier.id,
+                          debit: 0,
+                          credit: total,
+                        },
+                      ]
+                    : []),
+                  ...(transport.gt(0)
+                    ? [
+                        {
+                          accountId: transportAccount!.id,
+                          debit: transport,
+                          credit: 0,
+                        },
+                        {
+                          accountId: paymentAccount!.id,
+                          debit: 0,
+                          credit: transport,
+                        },
+                      ]
+                    : []),
                 ],
               },
             },
@@ -605,6 +660,7 @@ export class PurchasesController {
           number: purchase.number,
           receiptId: receipt.id,
           status: "RECEIVED",
+          transportAmount: transport.toFixed(2),
           total: total.toFixed(2),
           paid: paid.toFixed(2),
           due: total.sub(paid).toFixed(2),

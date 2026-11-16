@@ -1,4 +1,7 @@
-import { productCategoryCodes } from "./product-categories";
+import {
+  orderProductCategories,
+  productCategoryCodes,
+} from "./product-categories";
 import { createHash } from "node:crypto";
 import {
   BadRequestException,
@@ -121,7 +124,7 @@ export class SalesController {
     const [types, products, customers, paymentAccounts] = await Promise.all([
       this.db.productType.findMany({
         where: { active: true, code: { in: productCategoryCodes } },
-        select: { id: true, name: true, trackingKind: true },
+        select: { id: true, name: true, trackingKind: true, code: true },
         orderBy: { name: "asc" },
       }),
       this.db.product.findMany({
@@ -166,7 +169,9 @@ export class SalesController {
     ]);
     return {
       data: {
-        types,
+        types: orderProductCategories(types).map(
+          ({ id, name, trackingKind }) => ({ id, name, trackingKind }),
+        ),
         products: products.map(({ batteryUnits, batches, ...product }) => ({
           ...product,
           defaultSellingPrice: product.defaultSellingPrice.toFixed(2),
@@ -321,6 +326,14 @@ export class SalesController {
           where: { actorId_operation_key: { actorId, operation, key } },
         });
         if (prior) {
+          const previousSale = await tx.sale.findUnique({
+            where: { id: prior.sourceId },
+            select: { status: true },
+          });
+          if (previousSale?.status === "CANCELLED")
+            throw new ConflictException(
+              "This sale was deleted. Start a new sale instead of retrying it.",
+            );
           if (prior.requestHash !== requestHash)
             throw new ConflictException(
               "This sale was already submitted with different details. Reload the sales list.",
@@ -356,8 +369,10 @@ export class SalesController {
         const posting = await tx.posting.create({
           data: { actorId, kind: operation, sourceCode: "sale:" + key },
         });
-        const invoiceNumber =
-          "INV-" + body.saleDate.replaceAll("-", "") + "-" + key;
+        const [invoice] = await tx.$queryRaw<{ invoiceNumber: string }[]>`
+          SELECT 'HWB-' || lpad(nextval('"Sale_invoice_number_seq"')::text, 6, '0') AS "invoiceNumber"
+        `;
+        const invoiceNumber = invoice.invoiceNumber;
         const sale = await tx.sale.create({
           data: {
             id: key,

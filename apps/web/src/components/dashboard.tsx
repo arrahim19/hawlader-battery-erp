@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { useSession } from "@/components/session-provider";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { businessDate, money } from "@/lib/utils";
 import { todayInDhaka, useDashboardData } from "@/lib/use-dashboard";
 import {
@@ -362,96 +361,74 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
           </Button>
         </div>
       ) : null}
-      {loading ? (
-        <div
-          className="erp-stats"
-          data-finance={Boolean(finance)}
-          aria-busy="true"
-          aria-label="Loading dashboard"
-        >
-          {Array.from({ length: finance ? 6 : 5 }, (_, value) => (
-            <Skeleton className="h-32" key={value} />
-          ))}
-        </div>
-      ) : (
-        <div className="erp-stats" data-finance={Boolean(finance)}>
-          {finance ? (
-            <>
-              <StatCard
-                label="মোট বিক্রয়"
-                value={taka(data?.financials?.todaySales)}
+      <div
+        className="erp-stats"
+        data-finance={Boolean(finance)}
+        aria-busy={loading}
+      >
+        {finance ? (
+          <>
+            <StatCard
+              label="মোট বিক্রয়"
+              value={taka(data?.financials?.todaySales)}
 
-                icon={ShoppingCart}
-              />
-              <StatCard
-                label="মোট লাভ"
-                value={taka(data?.financials?.grossProfit)}
+              icon={ShoppingCart}
+            />
+            <StatCard
+              label="স্টকের ক্রয়মূল্য"
+              value={taka(data?.financials?.availableStockPurchaseValue)}
 
-                icon={ChartColumnIncreasing}
-              />
-              <StatCard
-                label="মোট ক্রয়"
-                value={taka(data?.financials?.todayPurchases)}
+              icon={Boxes}
+              tone="blue"
+            />
+            <StatCard
+              label="কাস্টমার বাকি"
+              value={taka(data?.financials?.customerDues)}
 
-                icon={ShoppingBag}
-                tone="blue"
-              />
-              <StatCard
-                label="স্টকের ক্রয়মূল্য"
-                value={taka(data?.financials?.availableStockPurchaseValue)}
+              icon={Wallet}
+              tone="orange"
+            />
+            <StatCard
+              label="কোম্পানির বাকি"
+              value={taka(data?.financials?.supplierDues)}
 
-                icon={Boxes}
-                tone="purple"
-              />
-              <StatCard
-                label="কাস্টমার বাকি"
-                value={taka(data?.financials?.customerDues)}
-
-                icon={Wallet}
-                tone="orange"
-              />
-              <StatCard
-                label="কোম্পানির বাকি"
-                value={taka(data?.financials?.supplierDues)}
-
-                icon={Truck}
-                tone="purple"
-              />
-            </>
-          ) : (
-            <>
-              <StatCard
-                label="সক্রিয় পণ্য"
-                value={count(data?.counts.products)}
-                icon={Package}
-              />
-              <StatCard
-                label="কাস্টমার"
-                value={count(data?.counts.customers)}
-                icon={Users}
-                tone="blue"
-              />
-              <StatCard
-                label="বিক্রয়যোগ্য স্টক"
-                value={count(data?.counts.availableStock)}
-                icon={Boxes}
-              />
-              <StatCard
-                label="কম স্টক পণ্য"
-                value={count(data?.counts.lowStock)}
-                icon={TriangleAlert}
-                tone="orange"
-              />
-              <StatCard
-                label="পেন্ডিং রিপ্লেসমেন্ট"
-                value={count(data?.counts.pendingReplacements)}
-                icon={ArrowLeftRight}
-                tone="purple"
-              />
-            </>
-          )}
-        </div>
-      )}
+              icon={Truck}
+              tone="purple"
+            />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="সক্রিয় পণ্য"
+              value={count(data?.counts.products)}
+              icon={Package}
+            />
+            <StatCard
+              label="কাস্টমার"
+              value={count(data?.counts.customers)}
+              icon={Users}
+              tone="blue"
+            />
+            <StatCard
+              label="বিক্রয়যোগ্য স্টক"
+              value={count(data?.counts.availableStock)}
+              icon={Boxes}
+            />
+            <StatCard
+              label="কম স্টক পণ্য"
+              value={count(data?.counts.lowStock)}
+              icon={TriangleAlert}
+              tone="orange"
+            />
+            <StatCard
+              label="পেন্ডিং রিপ্লেসমেন্ট"
+              value={count(data?.counts.pendingReplacements)}
+              icon={ArrowLeftRight}
+              tone="purple"
+            />
+          </>
+        )}
+      </div>
       <div className="dashboard-middle">
         <SalesChart
           data={data}

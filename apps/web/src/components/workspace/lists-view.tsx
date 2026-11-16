@@ -4,12 +4,9 @@ import {
   ArrowLeftRight,
   BatteryCharging,
   Boxes,
-  Check,
   ClipboardList,
-  Clock3,
   CreditCard,
   Download,
-  Eye,
   Filter,
   Package,
   Plus,
@@ -35,6 +32,8 @@ import {
 } from "@/components/reference-ui";
 import type { DashboardData } from "@/lib/api";
 import { money } from "@/lib/utils";
+import { ReplacementCases } from "./replacement-cases";
+import { ReplacementForm } from "./replacement-form";
 export function ListFilters({
   kind = "records",
   action,
@@ -220,7 +219,6 @@ export function InventoryView({
 export function ReplacementView({
   preview,
   view = "",
-  data,
 }: {
   preview: boolean;
   view?: string;
@@ -229,8 +227,6 @@ export function ReplacementView({
   const current = ["new", "dispatch", "receipts", "policy"].includes(view)
     ? view
     : "list";
-  const count = (value?: number) =>
-    preview || value == null ? "—" : String(value);
   return (
     <>
       <ModuleTabs
@@ -245,153 +241,8 @@ export function ReplacementView({
           { id: "policy", label: "Warranty Policy", icon: ShieldCheck },
         ]}
       />
-      <div className="erp-stats">
-        <StatCard
-          label="মোট কেস"
-          value={count(data?.replacementStages?.total)}
-          caption="সব Replacement কেস"
-          icon={ClipboardList}
-        />
-        <StatCard
-          label="পেন্ডিং রিটার্ন"
-          value={count(data?.replacementStages?.pendingReturn)}
-          caption="ফেরত পাঠানোর অপেক্ষায়"
-          icon={Clock3}
-          tone="blue"
-        />
-        <StatCard
-          label="কোম্পানিতে পাঠানো"
-          value={count(data?.replacementStages?.sentToCompany)}
-          caption="কোম্পানিতে পাঠানো হয়েছে"
-          icon={Truck}
-          tone="purple"
-        />
-        <StatCard
-          label="পর্যালোচনাধীন"
-          value={count(data?.replacementStages?.underReview)}
-          caption="কোম্পানির যাচাই চলছে"
-          icon={Search}
-          tone="orange"
-        />
-        <StatCard
-          label="রিপ্লেসমেন্ট পাওয়া"
-          value={count(data?.replacementStages?.received)}
-          caption="পরীক্ষা ও পরবর্তী ধাপের অপেক্ষায়"
-          icon={Check}
-        />
-      </div>
-      {current === "new" ? (
-        <Panel title="নতুন রিপ্লেসমেন্ট" icon={ArrowLeftRight}>
-          <div className="erp-form-body">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Replacement Source">
-                <select>
-                  <option>Before-Sale Replacement</option>
-                  <option>Customer Warranty Claim</option>
-                </select>
-              </Field>
-              <Field label="Customer / Invoice / Model Number">
-                <input placeholder="Search customer, invoice or model number..." />
-              </Field>
-              <Field label="Product / Model Number" required>
-                <select>
-                  <option value="">ব্যাটারি নির্বাচন করুন</option>
-                </select>
-              </Field>
-              <Field label="Supplier">
-                <select>
-                  <option value="">সাপ্লায়ার নির্বাচন করুন</option>
-                </select>
-              </Field>
-              <Field label="অভিযোগ / Fault reason" className="md:col-span-2">
-                <textarea placeholder="ব্যাটারির সমস্যা ও পরীক্ষার ফলাফল লিখুন..." />
-              </Field>
-            </div>
-            <div className="mt-5 flex justify-end">
-              <DesignAction icon={Plus} feature="রিপ্লেসমেন্ট রেজিস্ট্রেশন">
-                Register Replacement
-              </DesignAction>
-            </div>
-          </div>
-        </Panel>
-      ) : (
-        <>
-          <Panel className="mb-4">
-            <ListFilters
-              kind="replacements"
-              action={<DesignAction icon={Plus}>নতুন রিপ্লেসমেন্ট</DesignAction>}
-            />
-          </Panel>
-          <div className="master-detail-layout">
-            <Panel>
-              <EmptyTable
-                columns={
-                  current === "dispatch"
-                    ? [
-                        "চালান নং",
-                        "কোম্পানি",
-                        "পাঠানোর তারিখ",
-                        "ব্যাটারি",
-                        "স্ট্যাটাস",
-                        "অ্যাকশন",
-                      ]
-                    : current === "receipts"
-                      ? [
-                          "রিসিভ নং",
-                          "কোম্পানি",
-                          "Product / Model Number",
-                          "Product / Model Number",
-                          "তারিখ",
-                          "স্ট্যাটাস",
-                        ]
-                      : current === "policy"
-                        ? [
-                            "কোম্পানি",
-                            "পণ্যের ধরন",
-                            "ওয়ারেন্টি",
-                            "নীতি",
-                            "স্ট্যাটাস",
-                          ]
-                        : [
-                            "#",
-                            "কেস নং",
-                            "ইনভয়েস নং",
-                            "পণ্য",
-                            "সিরিয়াল নং",
-                            "গ্রাহক",
-                            "জমার তারিখ",
-                            "স্ট্যাটাস",
-                            "অ্যাকশন",
-                          ]
-                }
-                description="রিপ্লেসমেন্ট কেস যুক্ত হলে ব্যাটারি ও ওয়ারেন্টির ইতিহাস এখানে দেখা যাবে।"
-              />
-              <Pager />
-            </Panel>
-            <DetailPanel
-              title="Replacement Details"
-              rows={[
-                "কেস নং",
-                "স্ট্যাটাস",
-                "গ্রাহকের নাম",
-                "যোগাযোগ",
-                "পণ্য",
-                "সিরিয়াল নং",
-                "ইনভয়েস নং",
-                "জমার তারিখ",
-                "কোম্পানিতে পাঠানোর তারিখ",
-                "নোট",
-              ]}
-              footer={
-                <DesignAction variant="outline" icon={Eye}>
-                  সম্পূর্ণ বিবরণ দেখুন
-                </DesignAction>
-              }
-            />
-          </div>
-        </>
-      )}
-      <FoundationNote />
+      <ReplacementCases key={current} preview={preview} view={current} />
+      {current === "new" ? <ReplacementForm preview={preview} /> : null}
     </>
   );
 }

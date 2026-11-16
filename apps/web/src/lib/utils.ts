@@ -20,5 +20,5 @@ export function businessDate(value: string) {
     month: "short",
     year: "numeric",
     timeZone: "Asia/Dhaka",
-  }).format(new Date(value + "T12:00:00+06:00"));
+  }).format(new Date(value.includes("T") ? value : value + "T12:00:00+06:00"));
 }

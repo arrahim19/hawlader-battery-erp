@@ -1,3 +1,4 @@
+import { RecycleBinController } from "./recycle-bin";
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import {
@@ -37,6 +38,9 @@ import { CatalogController } from "./catalog";
 import { PurchasesController } from "./purchases";
 import { CustomersController } from "./customers";
 import { SalesController } from "./sales";
+import { TransactionCancellationController } from "./transaction-cancellation";
+import { ExpensesController } from "./expenses";
+import { ReplacementsController } from "./replacements";
 import { apiProxy } from "./api-proxy";
 
 class LoginDto {
@@ -201,7 +205,14 @@ class FoundationController {
       users: "access.manage",
     };
     if (!permission[module]) throw new NotFoundException("Module not found.");
-    if (!req.currentUser!.permissions.includes(permission[module]))
+    if (!(
+      req.currentUser!.permissions.includes(permission[module]) ||
+      (module === "recycle-bin" &&
+        req.currentUser!.permissions.includes("transactions.reverse") &&
+        ["sales.manage", "purchases.manage"].some((p) =>
+          req.currentUser!.permissions.includes(p),
+        ))
+    ))
       throw new ForbiddenException(
         "You do not have permission to access this module.",
       );
@@ -226,6 +237,10 @@ class FoundationController {
     PurchasesController,
     CustomersController,
     SalesController,
+    TransactionCancellationController,
+    RecycleBinController,
+    ExpensesController,
+    ReplacementsController,
   ],
   providers: [
     DatabaseService,

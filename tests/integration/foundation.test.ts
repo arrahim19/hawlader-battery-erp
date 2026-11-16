@@ -11,7 +11,12 @@ import { DatabaseService } from "../../apps/api/src/database.service";
 import { businessRange, DashboardService } from "../../apps/api/src/dashboard";
 import { settings } from "../../apps/api/src/config";
 import { rolePermissions } from "../../apps/api/src/permissions";
-import type { CurrentUser, DashboardData } from "../../packages/api-client/src";
+import { Prisma } from "@prisma/client";
+import type {
+  CurrentUser,
+  DashboardData,
+  ReplacementList,
+} from "../../packages/api-client/src";
 type TestAgent = ReturnType<typeof request.agent>;
 
 assert.equal(
@@ -757,6 +762,19 @@ test("dashboard trend uses posted revenue less COGS at Dhaka date boundaries", a
     const posting = await tx.posting.create({
       data: { actorId: ownerId, kind: "TEST", sourceCode: "trend-" + id },
     });
+    const customer = await tx.customer.create({
+      data: { name: "Trend customer " + id, phone: "01700000000" },
+    });
+    await tx.sale.create({
+      data: {
+        customerId: customer.id,
+        status: "CONFIRMED",
+        soldAt: new Date("2026-01-01T20:00:00Z"),
+        total: 100,
+        subtotal: 100,
+        postingId: posting.id,
+      },
+    });
     await tx.journalEntry.create({
       data: {
         postingId: posting.id,
@@ -1460,7 +1478,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     options.types.filter((type: { id: string }) =>
       fixtureTypeIds.includes(type.id),
     ),
-    [unitType, emptyType, quantityType].map(({ id, name, trackingKind }) => ({
+    [unitType, quantityType, emptyType].map(({ id, name, trackingKind }) => ({
       id,
       name,
       trackingKind,
@@ -1683,20 +1701,24 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   const recent = (await owner.get("/api/v1/purchases/recent").expect(200)).body
     .data;
   assert(recent.items.length <= 10);
-  assert.equal(recent.items[0].id, result.id);
-  assert.equal(recent.items[0].purchaseDate, body.purchaseDate);
-  assert.equal(recent.items[0].supplierReference, body.reference);
-  assert.deepEqual(recent.items[0].supplier, {
+  assert.equal(recent.items[0].id, partsReceived.body.data.id);
+  const recentBattery = recent.items.find(
+    (item: { id: string }) => item.id === result.id,
+  );
+  assert(recentBattery);
+  assert.equal(recentBattery.purchaseDate, body.purchaseDate);
+  assert.equal(recentBattery.supplierReference, body.reference);
+  assert.deepEqual(recentBattery.supplier, {
     name: supplier.name,
     company: supplier.company,
   });
-  assert.equal(recent.items[0].items[0].name, battery.name);
-  assert.equal(recent.items[0].items[0].model, battery.model);
-  assert.equal(recent.items[0].items[0].capacityAh, "100");
-  assert.equal(recent.items[0].items[0].voltage, "12");
-  assert.equal(recent.items[0].items[0].quantity, "2");
-  assert.equal(recent.items[0].items[0].unitPrice, "1000.10");
-  assert.equal(recent.items[0].items[0].total, "2000.20");
+  assert.equal(recentBattery.items[0].name, battery.name);
+  assert.equal(recentBattery.items[0].model, battery.model);
+  assert.equal(recentBattery.items[0].capacityAh, "100");
+  assert.equal(recentBattery.items[0].voltage, "12");
+  assert.equal(recentBattery.items[0].quantity, "2");
+  assert.equal(recentBattery.items[0].unitPrice, "1000.10");
+  assert.equal(recentBattery.items[0].total, "2000.20");
   assert.equal(
     (await receive({ ...body, paidAmount: "500.00" }, key)).status,
     409,
@@ -1718,6 +1740,120 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   assert.equal(
     await db.batteryUnit.count({ where: { productId: battery.id } }),
     2,
+  );
+  // Transport is a separate cash expense, with the same retry and reversal guarantees.
+  for (const transportAmount of ["-1", "1.001", "100000000000000.00"])
+    assert.equal((await receive({ ...body, transportAmount })).status, 400);
+  assert.equal(
+    (
+      await receive({
+        ...body,
+        paidAmount: "0.00",
+        transportAmount: "25.50",
+        paymentAccountId: undefined,
+      })
+    ).status,
+    400,
+  );
+  const transportKey = randomUUID();
+  const transportBody = {
+    ...body,
+    paidAmount: "0.00",
+    transportAmount: "25.50",
+  };
+  const transportPurchase = (await receive(transportBody, transportKey)).body
+    .data;
+  assert.equal(transportPurchase.transportAmount, "25.50");
+  assert.equal(transportPurchase.due, "2000.20");
+  assert.equal((await receive(transportBody, transportKey)).status, 201);
+  const transportJournal = await db.journalEntry.findFirstOrThrow({
+    where: { posting: { sourceCode: "purchase:" + transportPurchase.id } },
+    include: { lines: { include: { account: true } } },
+  });
+  const transportLine = transportJournal.lines.find(
+    (line) => line.account.code === "5200",
+  )!;
+  assert.equal(transportLine.debit.toFixed(2), "25.50");
+  assert.equal(
+    transportJournal.lines
+      .find((line) => line.accountId === cash.id)!
+      .credit.toFixed(2),
+    "25.50",
+  );
+  const reportPath =
+    "/api/v1/reports/financial-summary?from=2025-06-01&to=2025-06-01";
+  const report = (await owner.get(reportPath).expect(200)).body.data;
+  assert(
+    report.transportTransactions.some(
+      (line: { id: string }) => line.id === transportLine.id,
+    ),
+  );
+  assert.equal(report.transportExpenses, "25.50");
+  const companyPayment = report.companyTransactions.find(
+    (line: { id: string }) =>
+      line.id === receipt.paymentAllocations[0].payment.id,
+  );
+  assert(companyPayment);
+  assert.equal(
+    report.companyTransactionCount,
+    report.companyTransactions.length,
+  );
+  assert.equal(
+    companyPayment.company,
+    supplier.company?.trim() || supplier.name,
+  );
+  assert.equal(companyPayment.amount, "500.05");
+  assert.equal(companyPayment.type, "Payment");
+  assert.equal(companyPayment.challanNumber, body.reference);
+  const validPayments = await db.payment.findMany({
+    where: {
+      supplierId: { not: null },
+      reversedPaymentId: null,
+      reversal: { is: null },
+    },
+    orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+    take: 100,
+  });
+  assert.deepEqual(
+    report.companyTransactions.map((line: { id: string }) => line.id),
+    validPayments.map((payment) => payment.id),
+  );
+  assert.equal(
+    report.transportTransactions.find(
+      (line: { id: string }) => line.id === transportLine.id,
+    ).challanNumber,
+    body.reference,
+  );
+  const expenseRows = (
+    await owner.get("/api/v1/expenses").query({ pageSize: 100 }).expect(200)
+  ).body.data.items;
+  assert.equal(
+    expenseRows.find((line: { id: string }) => line.id === transportLine.id)
+      .challanNumber,
+    body.reference,
+  );
+  await owner
+    .delete("/api/v1/purchases/" + transportPurchase.id)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true, reason: "Transport reversal test" })
+    .expect(200);
+  const reversal = await db.journalEntry.findUniqueOrThrow({
+    where: { reversedEntryId: transportJournal.id },
+    include: { lines: true },
+  });
+  assert.equal(
+    reversal.lines
+      .find((line) => line.accountId === transportLine.accountId)!
+      .credit.toFixed(2),
+    "25.50",
+  );
+  const afterTransport = (await owner.get(reportPath).expect(200)).body.data;
+  assert.equal(afterTransport.transportExpenses, "0.00");
+  assert(
+    !afterTransport.transportTransactions.some(
+      (line: { id: string }) => line.id === transportLine.id,
+    ),
   );
 });
 
@@ -2023,6 +2159,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
   const first = await complete(body, key);
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.equal(first.body.data.total, "210.85");
+  assert.match(first.body.data.invoiceNumber, /^HWB-\d{6}$/);
   assert.equal(first.body.data.paid, "100.05");
   assert.equal(first.body.data.due, "110.80");
   assert.equal(first.body.data.quantity, 4);
@@ -2169,12 +2306,661 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
     batteryRaces.map((response) => response.status).sort(),
     [201, 409],
   );
+  const invoices = [first, ...races, ...batteryRaces]
+    .filter((response) => response.status === 201)
+    .map((response) => response.body.data.invoiceNumber as string);
+  assert.equal(new Set(invoices).size, 3);
+  for (const invoice of invoices) assert.match(invoice, /^HWB-\d{6}$/);
   assert.equal(
     await db.saleUnit.count({
       where: { batteryUnitId: units[1].id, releasedAt: null },
     }),
     1,
   );
+});
+
+test("deleting sales and unused purchases reverses exact stock and payments once and preserves history", async () => {
+  const suffix = randomUUID();
+  const types = await db.productType.findMany({
+    where: { code: { in: ["PARTS", "BATTERY"] } },
+  });
+  const cash = await db.account.findUniqueOrThrow({ where: { code: "1100" } });
+  const write = async (path: string, body: object, key = randomUUID()) =>
+    owner
+      .post("/api/v1/" + path)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(owner))
+      .set("Idempotency-Key", key)
+      .send(body);
+  const customer = await db.customer.create({
+    data: {
+      name: "Cancellation customer " + suffix,
+      phone: "01710000000",
+      address: "Dhaka",
+    },
+  });
+  const parts = (
+    await write("products", {
+      typeId: types.find((t) => t.code === "PARTS")!.id,
+      name: "Cancellation parts " + suffix,
+      unit: "pcs",
+      category: "Cancellation fittings " + suffix,
+    })
+  ).body.data;
+  const battery = (
+    await write("products", {
+      typeId: types.find((t) => t.code === "BATTERY")!.id,
+      name: "Cancellation battery " + suffix,
+      unit: "pcs",
+      model: "Cancellation battery model",
+      warrantyMonths: 12,
+    })
+  ).body.data;
+  const suppliers = await Promise.all(
+    types.map((type) =>
+      db.supplier.create({
+        data: {
+          name: "Cancellation supplier " + type.code + suffix,
+          productTypeId: type.id,
+        },
+      }),
+    ),
+  );
+  const purchaseBodies = [
+    {
+      supplierId: suppliers.find((s) => s.productTypeId === parts.type.id)!.id,
+      purchaseDate: "2025-01-01",
+      items: [{ productId: parts.id, quantity: 5, unitPrice: "10.00" }],
+      paidAmount: "20.00",
+      paymentAccountId: cash.id,
+    },
+    {
+      supplierId: suppliers.find((s) => s.productTypeId === battery.type.id)!
+        .id,
+      purchaseDate: "2025-01-01",
+      items: [{ productId: battery.id, quantity: 2, unitPrice: "100.00" }],
+      paidAmount: "50.00",
+      paymentAccountId: cash.id,
+    },
+  ];
+  const purchaseKeys = [randomUUID(), randomUUID()];
+  const purchases: { id: string }[] = [];
+  for (let index = 0; index < purchaseBodies.length; index++) {
+    const response = await write(
+      "purchases/receive",
+      purchaseBodies[index],
+      purchaseKeys[index],
+    );
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    purchases.push(response.body.data);
+  }
+  const saleBody = {
+    customerId: customer.id,
+    saleDate: "2025-01-31",
+    items: [
+      { productId: parts.id, quantity: 2, unitPrice: "20.00" },
+      { productId: battery.id, quantity: 1, unitPrice: "150.00" },
+    ],
+    paidAmount: "100.00",
+    paymentAccountId: cash.id,
+  };
+  const saleKey = randomUUID();
+  const summaryService = new DashboardService(db);
+  const baselineSummary = (await summaryService.get(true)).financials!;
+  const baselineInvoiceDay = (
+    await summaryService.get(true, "2025-01-31", "2025-01-31")
+  ).financials!;
+  const created = await write("sales/complete", saleBody, saleKey);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const saleId = created.body.data.id;
+  const remove = async (
+    path: string,
+    body: object = {
+      confirmed: true,
+      reason: "Entry entered by mistake; goods and money returned",
+    },
+    agent = owner,
+  ) =>
+    agent
+      .delete("/api/v1/" + path)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(agent))
+      .send(body);
+  await request(app.getHttpServer())
+    .delete("/api/v1/sales/" + saleId)
+    .set("Origin", origin())
+    .expect(401);
+  await owner
+    .delete("/api/v1/sales/" + saleId)
+    .set("Origin", origin())
+    .send({ confirmed: true, reason: "Wrong sale" })
+    .expect(403);
+  assert.equal((await remove("sales/" + saleId, undefined, staff)).status, 403);
+  assert.equal(
+    (await remove("purchases/" + purchases[0].id, undefined, staff)).status,
+    403,
+  );
+  for (const invalid of [
+    { confirmed: false, reason: "Wrong sale" },
+    { confirmed: true, reason: 123 },
+    { confirmed: true, reason: "Wrong", total: 0 },
+  ])
+    assert.equal((await remove("sales/" + saleId, invalid)).status, 400);
+  const journalCount = await db.journalEntry.count();
+  assert.equal((await remove("purchases/" + purchases[0].id)).status, 409);
+  assert.equal(await db.journalEntry.count(), journalCount);
+  assert.equal(
+    (await db.purchase.findUniqueOrThrow({ where: { id: purchases[0].id } }))
+      .status,
+    "RECEIVED",
+  );
+  const soldUnit = await db.saleUnit.findFirstOrThrow({
+    where: { saleItem: { saleId } },
+  });
+  const claim = await db.warrantyClaim.create({
+    data: {
+      number: "CANCEL-CLAIM-" + suffix,
+      complaint: "Test claim",
+      eligible: true,
+      eligibilityReason: "Within coverage",
+      policySnapshot: {},
+      receivedDate: new Date("2025-02-01"),
+      originalExpiry: soldUnit.coverageExpiry,
+      receiptSnapshot: {},
+      customerId: customer.id,
+      saleUnitId: soldUnit.id,
+      faultyUnitId: soldUnit.batteryUnitId,
+    },
+  });
+  assert.equal((await remove("sales/" + saleId)).status, 409);
+  assert.equal(await db.journalEntry.count(), journalCount);
+  await db.warrantyClaim.delete({ where: { id: claim.id } });
+  const cancelled = await Promise.all([
+    remove("sales/" + saleId, { confirmed: true }),
+    remove("sales/" + saleId, { confirmed: true, reason: "" }),
+  ]);
+  for (const response of cancelled)
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(
+    await db.auditLog.count({
+      where: { action: "SALE_CANCELLED", resourceId: saleId },
+    }),
+    1,
+  );
+  assert.equal((await write("sales/complete", saleBody, saleKey)).status, 409);
+  const options = (await owner.get("/api/v1/sales/options").expect(200)).body
+    .data;
+  assert.equal(
+    options.products.find((p: { id: string }) => p.id === parts.id)
+      .availableQuantity,
+    "5",
+  );
+  assert.equal(
+    options.products.find((p: { id: string }) => p.id === battery.id)
+      .availableQuantity,
+    "2",
+  );
+  assert.equal(
+    await db.saleUnit.count({
+      where: { saleItem: { saleId }, releasedAt: null },
+    }),
+    0,
+  );
+  assert.equal(
+    await db.sale.count({ where: { id: saleId, status: "CANCELLED" } }),
+    1,
+  );
+  const customerBalance = await db.journalLine.aggregate({
+    where: { customerId: customer.id },
+    _sum: { debit: true, credit: true },
+  });
+  assert.equal(
+    customerBalance._sum.debit!.sub(customerBalance._sum.credit!).toFixed(2),
+    "0.00",
+  );
+  const salePayment = await db.payment.findFirstOrThrow({
+    where: { allocations: { some: { saleId } }, reversedPaymentId: null },
+    include: { reversal: true },
+  });
+  assert.equal(salePayment.reversal?.direction, "OUTGOING");
+  assert.equal(salePayment.reversal?.amount.toFixed(2), "100.00");
+  for (let index = 0; index < purchases.length; index++) {
+    const response = await remove("purchases/" + purchases[index].id);
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(
+      (await remove("purchases/" + purchases[index].id)).status,
+      200,
+    );
+    assert.equal(
+      await db.auditLog.count({
+        where: {
+          action: "PURCHASE_CANCELLED",
+          resourceId: purchases[index].id,
+        },
+      }),
+      1,
+    );
+    assert.equal(
+      (
+        await write(
+          "purchases/receive",
+          purchaseBodies[index],
+          purchaseKeys[index],
+        )
+      ).status,
+      409,
+    );
+  }
+  const finalOptions = (await owner.get("/api/v1/sales/options").expect(200))
+    .body.data;
+  for (const product of [parts, battery])
+    assert.equal(
+      finalOptions.products.find((p: { id: string }) => p.id === product.id)
+        .availableQuantity,
+      "0",
+    );
+  for (const supplier of suppliers) {
+    const balance = await db.journalLine.aggregate({
+      where: { supplierId: supplier.id },
+      _sum: { debit: true, credit: true },
+    });
+    assert.equal(
+      balance._sum.debit!.sub(balance._sum.credit!).toFixed(2),
+      "0.00",
+    );
+  }
+  assert.equal(
+    await db.batteryUnit.count({
+      where: { productId: battery.id, commercialState: "RETIRED" },
+    }),
+    2,
+  );
+  const recent = (await owner.get("/api/v1/purchases/recent").expect(200)).body
+    .data;
+  assert(
+    !recent.items.some((item: { id: string }) =>
+      purchases.some((p) => p.id === item.id),
+    ),
+  );
+  const saved = (
+    await owner
+      .get("/api/v1/sales?q=" + created.body.data.invoiceNumber)
+      .expect(200)
+  ).body.data;
+  assert.equal(saved.total, 0);
+  const cancelledSummary = (await summaryService.get(true)).financials!;
+  assert.equal(cancelledSummary.todaySales, baselineSummary.todaySales);
+  assert.equal(cancelledSummary.grossProfit, baselineSummary.grossProfit);
+  assert.equal(cancelledSummary.salesIncome, baselineSummary.salesIncome);
+  assert.equal(cancelledSummary.salesProfit, baselineSummary.salesProfit);
+  // Recycle Bin restores exact batches, original invoice and effective payments.
+  const bin = async () =>
+    (await owner.get("/api/v1/recycle-bin").expect(200)).body.data as {
+      id: string;
+      name: string;
+      type: string;
+    }[];
+  const saleEntry = (await bin()).find(
+    (e) => e.name === created.body.data.invoiceNumber,
+  )!;
+  assert(saleEntry);
+  await request(app.getHttpServer()).get("/api/v1/recycle-bin").expect(401);
+  assert.equal((await staff.get("/api/v1/recycle-bin")).body.data.length, 0);
+  const restore = (entryId: string) =>
+    write("recycle-bin/" + entryId + "/restore", { confirmed: true });
+  const journalBeforeConflict = await db.journalEntry.count();
+  assert.equal((await restore(saleEntry.id)).status, 409);
+  assert.equal(await db.journalEntry.count(), journalBeforeConflict);
+  await owner
+    .post("/api/v1/recycle-bin/" + saleEntry.id + "/restore")
+    .set("Origin", origin())
+    .send({ confirmed: true })
+    .expect(403);
+  const denied = await staff
+    .post("/api/v1/recycle-bin/" + saleEntry.id + "/restore")
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(staff))
+    .send({ confirmed: true });
+  assert.equal(denied.status, 403);
+  assert.equal(
+    (
+      await write("recycle-bin/" + saleEntry.id + "/restore", {
+        confirmed: false,
+      })
+    ).status,
+    400,
+  );
+  for (const purchase of purchases) {
+    const row = await db.purchase.findUniqueOrThrow({
+      where: { id: purchase.id },
+    });
+    const entry = (await bin()).find((e) => e.name === row.number)!;
+    assert(entry);
+    const restored = await restore(entry.id);
+    assert.equal(restored.status, 201, JSON.stringify(restored.body));
+    assert.equal((await restore(entry.id)).status, 409);
+  }
+  const restores = await Promise.all([
+    restore(saleEntry.id),
+    restore(saleEntry.id),
+  ]);
+  assert.deepEqual(restores.map((r) => r.status).sort(), [201, 409]);
+  const restoredSummary = (await summaryService.get(true)).financials!;
+  assert.equal(restoredSummary.todaySales, baselineSummary.todaySales);
+  assert.equal(restoredSummary.grossProfit, baselineSummary.grossProfit);
+  const invoiceDay = await summaryService.get(true, "2025-01-31", "2025-01-31");
+  assert.equal(
+    new Prisma.Decimal(invoiceDay.financials!.todaySales)
+      .sub(baselineInvoiceDay.todaySales)
+      .toFixed(2),
+    "190.00",
+  );
+  assert.equal(
+    new Prisma.Decimal(invoiceDay.financials!.grossProfit)
+      .sub(baselineInvoiceDay.grossProfit)
+      .toFixed(2),
+    "70.00",
+  );
+  assert.equal(
+    invoiceDay.salesTrend[0].amount,
+    invoiceDay.financials!.todaySales,
+  );
+  assert.equal(
+    new Prisma.Decimal(restoredSummary.salesIncome!)
+      .sub(baselineSummary.salesIncome!)
+      .toFixed(2),
+    "190.00",
+  );
+  assert.equal(
+    new Prisma.Decimal(restoredSummary.salesProfit!)
+      .sub(baselineSummary.salesProfit!)
+      .toFixed(2),
+    "70.00",
+  );
+  const activeSale = await db.sale.findUniqueOrThrow({ where: { id: saleId } });
+  assert.equal(activeSale.invoiceNumber, created.body.data.invoiceNumber);
+  assert.equal(activeSale.status, "CONFIRMED");
+  const restoredPayment = await db.payment.findMany({
+    where: {
+      allocations: { some: { saleId } },
+      reversedPaymentId: null,
+      reversal: { is: null },
+    },
+  });
+  assert.equal(restoredPayment.length, 1);
+  assert.equal(restoredPayment[0].amount.toFixed(2), "100.00");
+  const restoredOptions = (await owner.get("/api/v1/sales/options").expect(200))
+    .body.data;
+  assert.equal(
+    restoredOptions.products.find((p: { id: string }) => p.id === parts.id)
+      .availableQuantity,
+    "3",
+  );
+  assert.equal(
+    restoredOptions.products.find((p: { id: string }) => p.id === battery.id)
+      .availableQuantity,
+    "1",
+  );
+  const restoredCustomerBalance = await db.journalLine.aggregate({
+    where: { customerId: customer.id },
+    _sum: { debit: true, credit: true },
+  });
+  assert.equal(
+    restoredCustomerBalance._sum
+      .debit!.sub(restoredCustomerBalance._sum.credit!)
+      .toFixed(2),
+    "90.00",
+  );
+  assert(!(await bin()).some((e) => e.id === saleEntry.id));
+  // A second delete/restore cycle must not reuse journal keys or released units.
+  assert.equal((await remove("sales/" + saleId)).status, 200);
+  const secondEntry = (await bin()).find(
+    (e) => e.name === created.body.data.invoiceNumber,
+  )!;
+  assert(secondEntry.id !== saleEntry.id);
+  assert.equal((await restore(secondEntry.id)).status, 201);
+  assert.equal((await remove("sales/" + saleId)).status, 200);
+  const finalEntry = (await bin()).find(
+    (e) => e.name === created.body.data.invoiceNumber,
+  )!;
+  assert.equal(
+    (await remove("recycle-bin/" + finalEntry.id, { confirmed: true })).status,
+    200,
+  );
+  assert.equal((await restore(finalEntry.id)).status, 409);
+  assert(!(await bin()).some((e) => e.id === finalEntry.id));
+  assert.equal(
+    (await db.sale.findUniqueOrThrow({ where: { id: saleId } })).status,
+    "CANCELLED",
+  );
+  // Purchase restore can also be repeated, then made unavailable permanently.
+  for (const purchase of purchases) {
+    assert.equal((await remove("purchases/" + purchase.id)).status, 200);
+    const row = await db.purchase.findUniqueOrThrow({
+      where: { id: purchase.id },
+    });
+    const entry = (await bin()).find((e) => e.name === row.number)!;
+    assert.equal((await restore(entry.id)).status, 201);
+    assert.equal((await remove("purchases/" + purchase.id)).status, 200);
+  }
+});
+
+test("supplier recycle bin finalization blocks both restore endpoints and repeated stale actions", async () => {
+  const category = await db.productType.findUniqueOrThrow({
+    where: { code: "BATTERY" },
+  });
+  const supplier = await db.supplier.create({
+    data: { name: "Bin supplier " + randomUUID(), productTypeId: category.id },
+  });
+  await owner
+    .delete("/api/v1/suppliers/" + supplier.id)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true })
+    .expect(200);
+  const entry = await db.auditLog.findFirstOrThrow({
+    where: { action: "SUPPLIER_DELETED", resourceId: supplier.id },
+  });
+  await owner
+    .delete("/api/v1/recycle-bin/" + entry.id)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true })
+    .expect(200);
+  for (const path of [
+    "/recycle-bin/" + entry.id + "/restore",
+    "/suppliers/recycle-bin/" + entry.id + "/restore",
+  ])
+    await owner
+      .post("/api/v1" + path)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(owner))
+      .send({ confirmed: true })
+      .expect(409);
+  assert.equal(
+    await db.supplier.findUnique({ where: { id: supplier.id } }),
+    null,
+  );
+  for (const path of ["/recycle-bin", "/suppliers/recycle-bin"]) {
+    const result = await owner.get("/api/v1" + path).expect(200);
+    assert(!result.body.data.some((e: { id: string }) => e.id === entry.id));
+  }
+  const second = await db.supplier.create({
+    data: {
+      name: "Restorable supplier " + randomUUID(),
+      productTypeId: category.id,
+    },
+  });
+  await owner
+    .delete("/api/v1/suppliers/" + second.id)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true })
+    .expect(200);
+  const secondEntry = await db.auditLog.findFirstOrThrow({
+    where: { action: "SUPPLIER_DELETED", resourceId: second.id },
+  });
+  await owner
+    .post("/api/v1/recycle-bin/" + secondEntry.id + "/restore")
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true })
+    .expect(201);
+  assert.equal(
+    (await db.supplier.findUniqueOrThrow({ where: { id: second.id } })).name,
+    second.name,
+  );
+  await owner
+    .delete("/api/v1/recycle-bin/" + secondEntry.id)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(owner))
+    .send({ confirmed: true })
+    .expect(409);
+});
+
+test("paid expenses persist once, debit the category, credit cash and include transport without double counting", async () => {
+  const cash = await db.account.findUniqueOrThrow({ where: { code: "1100" } });
+  const invalidAccount = await db.account.findUniqueOrThrow({
+    where: { code: "2100" },
+  });
+  await request(app.getHttpServer()).get("/api/v1/expenses").expect(401);
+  await staff.get("/api/v1/expenses").expect(403);
+  const options = (await owner.get("/api/v1/expenses/options").expect(200)).body
+    .data;
+  assert.deepEqual(options.categories, [
+    "Office Expense",
+    "Transport",
+    "Others",
+  ]);
+  assert.equal(options.cashAvailable, true);
+  assert(
+    options.paymentAccounts.some(
+      (account: { id: string }) => account.id === cash.id,
+    ),
+  );
+  const expenseDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const body = {
+    expenseDate,
+    category: "Office Expense",
+    amount: "25.50",
+  };
+  const save = async (
+    payload: object,
+    key: string | undefined = randomUUID(),
+    agent = owner,
+  ) => {
+    const command = agent
+      .post("/api/v1/expenses")
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(agent));
+    if (key) command.set("Idempotency-Key", key);
+    return command.send(payload);
+  };
+  await owner
+    .post("/api/v1/expenses")
+    .set("Origin", origin())
+    .send(body)
+    .expect(403);
+  assert.equal((await save(body, randomUUID(), staff)).status, 403);
+  const initialExpenses = await db.expense.count(),
+    initialJournals = await db.journalEntry.count();
+  for (const invalid of [
+    { ...body, amount: "0" },
+    { ...body, amount: "1.001" },
+    { ...body, amount: "-1" },
+    { ...body, expenseDate: "2026-02-30" },
+    { ...body, description: 0 },
+    { ...body, category: "Unknown" },
+    { ...body, paymentAccountId: invalidAccount.id },
+    { ...body, paymentAccountId: randomUUID() },
+  ])
+    assert.equal((await save(invalid)).status, 400);
+  assert.equal(await db.expense.count(), initialExpenses);
+  assert.equal(await db.journalEntry.count(), initialJournals);
+  const before = (await owner.get("/api/v1/expenses?pageSize=100").expect(200))
+    .body.data;
+  const cashBefore = await db.journalLine.aggregate({
+    where: { accountId: cash.id },
+    _sum: { credit: true },
+  });
+  const key = randomUUID();
+  const concurrent = await Promise.all([save(body, key), save(body, key)]);
+  for (const response of concurrent)
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.deepEqual(concurrent[0].body, concurrent[1].body);
+  assert(
+    concurrent.some(
+      (response) => response.headers["idempotency-replayed"] === "true",
+    ),
+  );
+  assert.equal(await db.expense.count(), initialExpenses + 1);
+  assert.equal(await db.journalEntry.count(), initialJournals + 1);
+  assert.equal(
+    (await save({ ...body, description: "Changed expense" }, key)).status,
+    409,
+  );
+  const expense = await db.expense.findUniqueOrThrow({
+    where: { id: concurrent[0].body.data.id },
+    include: { settlements: true, journal: { include: { lines: true } } },
+  });
+  assert.equal(expense.amount.toFixed(2), "25.50");
+  assert.equal(expense.incurredDate.toISOString().slice(0, 10), expenseDate);
+  assert.equal(expense.settlements.length, 1);
+  assert.equal(expense.settlements[0].journalId, expense.journalId);
+  assert.equal(expense.journal.lines.length, 2);
+  assert.equal(
+    expense.journal.lines
+      .find((line) => line.accountId === cash.id)!
+      .credit.toFixed(2),
+    "25.50",
+  );
+  const cashAfter = await db.journalLine.aggregate({
+    where: { accountId: cash.id },
+    _sum: { credit: true },
+  });
+  assert.equal(
+    cashAfter._sum.credit!.sub(cashBefore._sum.credit ?? 0).toFixed(2),
+    "25.50",
+  );
+  const transport = await save({
+    ...body,
+    category: "Transport",
+    description: "Manual transport " + randomUUID(),
+    amount: "30.25",
+  });
+  assert.equal(transport.status, 201, JSON.stringify(transport.body));
+  const after = (await owner.get("/api/v1/expenses?pageSize=100").expect(200))
+    .body.data;
+  assert.equal(
+    new Prisma.Decimal(after.summary.total)
+      .sub(before.summary.total)
+      .toFixed(2),
+    "55.75",
+  );
+  assert.equal(after.total, before.total + 2);
+  assert.equal(
+    after.items.filter(
+      (item: { expenseId: string }) => item.expenseId === expense.id,
+    ).length,
+    1,
+  );
+  const priorTransport =
+    before.summary.byCategory.find(
+      (item: { name: string }) => item.name === "Transport",
+    )?.amount ?? "0.00";
+  const nextTransport = after.summary.byCategory.find(
+    (item: { name: string }) => item.name === "Transport",
+  )!.amount;
+  assert.equal(
+    new Prisma.Decimal(nextTransport).sub(priorTransport).toFixed(2),
+    "30.25",
+  );
+  await owner.get("/api/v1/expenses?pageSize=0").expect(400);
 });
 
 test("receiving batteries without serial numbers creates stock and replays safely", async () => {
@@ -2355,4 +3141,429 @@ test("receiving batteries without serial numbers creates stock and replays safel
     randomUUID(),
   );
   assert.equal(forbidden.status, 400);
+});
+
+test("replacement status dropdown persists four stages with validation, permissions and conflict protection", async () => {
+  const sourceUnit = await db.batteryUnit.findFirstOrThrow({
+    where: { origin: "OPENING" },
+  });
+  const supplier = await db.supplier.create({
+    data: { name: "Status test supplier " + id },
+  });
+  const unit = await db.batteryUnit.create({
+    data: {
+      productId: sourceUnit.productId,
+      batchId: sourceUnit.batchId,
+      origin: "OPENING",
+      internalCode: "status-unit-" + id,
+      condition: "FAULTY",
+    },
+  });
+  const record = await db.replacementRecord.create({
+    data: {
+      number: "status-case-" + id,
+      source: "BEFORE_SALE",
+      faultReason: "Status test",
+      oldUnitId: unit.id,
+      supplierId: supplier.id,
+    },
+  });
+  const list = async (status = "all") =>
+    (
+      await owner
+        .get("/api/v1/replacements")
+        .query({ q: record.number, status })
+        .expect(200)
+    ).body.data as ReplacementList;
+  let rows = await list();
+  assert.equal(rows.total, 1);
+  assert.equal(rows.items[0].status, "FAULTY");
+  assert.equal(rows.items[0].serial, unit.internalCode);
+  const send = async (status: string, version: number, agent = owner) =>
+    agent
+      .post(`/api/v1/replacements/${record.id}/status`)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(agent))
+      .send({ status, version });
+  assert.equal((await send("SENT", 1, staff)).status, 403);
+  assert.equal((await send("UNKNOWN", 1)).status, 400);
+  let version = 1;
+  for (const [stage, stored] of [
+    ["SENT", "SENT_TO_COMPANY"],
+    ["RECEIVED", "REPLACEMENT_RECEIVED"],
+    ["DELIVERED", "COMPLETED"],
+  ]) {
+    const response = await send(stage, version);
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    assert.equal(response.body.data.version, ++version);
+    const saved = await db.replacementRecord.findUniqueOrThrow({
+      where: { id: record.id },
+    });
+    assert.equal(saved.status, stored);
+    rows = await list(stage);
+    assert.equal(rows.total, 1);
+    assert.equal(rows.items[0].status, stage);
+    assert(rows.summary[stage as keyof ReplacementList["summary"]] >= 1);
+  }
+  assert.equal((await list("FAULTY")).total, 0);
+  assert.equal((await send("FAULTY", 1)).status, 409);
+  const logs = await db.auditLog.findMany({
+    where: { resourceId: record.id, action: "REPLACEMENT_STATUS_CHANGED" },
+  });
+  assert.equal(logs.length, 3);
+  assert(logs.every((log) => log.actorId === ownerId));
+  await db.replacementRecord.update({
+    where: { id: record.id },
+    data: { status: "UNDER_REVIEW" },
+  });
+  assert.equal((await list("SENT")).items[0].status, "SENT");
+  await db.replacementRecord.update({
+    where: { id: record.id },
+    data: { status: "READY_FOR_CUSTOMER_DELIVERY" },
+  });
+  assert.equal((await list("RECEIVED")).items[0].status, "RECEIVED");
+});
+
+test("replacement intake loads real stock and invoice batteries and registers each source atomically", async () => {
+  const template = await db.batteryUnit.findFirstOrThrow({
+    where: { origin: "OPENING" },
+  });
+  const supplier = await db.supplier.create({
+    data: { name: "Intake supplier " + id },
+  });
+  const stock = await db.batteryUnit.create({
+    data: {
+      productId: template.productId,
+      batchId: template.batchId,
+      origin: "OPENING",
+      internalCode: "intake-unit-" + id,
+      condition: "GOOD",
+      commercialState: "AVAILABLE",
+    },
+  });
+  const stockOptions = await owner
+    .get("/api/v1/replacements/options")
+    .query({ source: "BEFORE_SALE", q: stock.internalCode })
+    .expect(200);
+  await db.batteryUnit.create({
+    data: {
+      productId: stock.productId,
+      batchId: stock.batchId,
+      origin: "OPENING",
+      internalCode: "intake-extra-" + id,
+      condition: "GOOD",
+      commercialState: "AVAILABLE",
+    },
+  });
+  assert.equal(stockOptions.body.data.units[0].id, stock.id);
+  assert(
+    stockOptions.body.data.suppliers.some(
+      (item: { id: string }) => item.id === supplier.id,
+    ),
+  );
+  const intake = async (body: object, agent = owner) =>
+    agent
+      .post("/api/v1/replacements")
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(agent))
+      .send(body);
+  const stockBody = {
+    id: randomUUID(),
+    source: "BEFORE_SALE",
+    unitId: stock.id,
+    supplierId: supplier.id,
+    faultReason: "Not charging",
+    quantity: 2,
+  };
+  assert.equal((await intake(stockBody, staff)).status, 403);
+  const registered = await intake(stockBody);
+  assert.equal(registered.status, 201, JSON.stringify(registered.body));
+  assert.equal(registered.body.data.quantity, 2);
+  assert.equal(
+    await db.auditLog.count({
+      where: {
+        action: "REPLACEMENT_CREATED",
+        metadata: { path: ["registrationId"], equals: stockBody.id },
+      },
+    }),
+    2,
+  );
+  assert.equal((await intake(stockBody)).body.data.id, stockBody.id);
+  assert.equal((await intake({ ...stockBody, quantity: 1 })).status, 409);
+  assert.equal(
+    await db.replacementRecord.count({ where: { oldUnitId: stock.id } }),
+    1,
+  );
+  assert.equal(
+    await db.stockMovement.count({
+      where: {
+        batteryUnitId: stock.id,
+        reason: { startsWith: "Replacement intake" },
+      },
+    }),
+    1,
+  );
+  const faulty = await db.batteryUnit.findUniqueOrThrow({
+    where: { id: stock.id },
+  });
+  assert.equal(faulty.condition, "FAULTY");
+  assert.equal(faulty.commercialState, "UNAVAILABLE");
+  const after = await owner
+    .get("/api/v1/replacements/options")
+    .query({ source: "BEFORE_SALE", q: stock.internalCode })
+    .expect(200);
+  assert.equal(after.body.data.units.length, 0);
+  const sold = await db.saleUnit.findFirstOrThrow({
+    where: {
+      releasedAt: null,
+      batteryUnit: { ownership: "CUSTOMER", custody: "CUSTOMER" },
+      saleItem: {
+        sale: { status: { in: ["CONFIRMED", "PARTIALLY_RETURNED"] } },
+      },
+    },
+    include: { batteryUnit: true, saleItem: { include: { sale: true } } },
+  });
+  const warrantyOptions = await owner
+    .get("/api/v1/replacements/options")
+    .query({ source: "CUSTOMER_WARRANTY", q: sold.saleItem.sale.invoiceNumber })
+    .expect(200);
+  const choices = warrantyOptions.body.data.units as {
+    id: string;
+    productId: string;
+    saleUnitId: string;
+    label: string;
+  }[];
+  const choice = choices.find(
+    (item) => item.productId === sold.batteryUnit.productId,
+  );
+  assert(choice);
+  assert(!choice.label.includes("BAT-"));
+  assert(!choice.label.includes(sold.saleItem.sale.invoiceNumber!));
+  const representedSales = await db.saleUnit.findMany({
+    where: { id: { in: choices.map((item) => item.saleUnitId) } },
+  });
+  assert.equal(
+    new Set(representedSales.map((item) => item.saleItemId)).size,
+    choices.length,
+  );
+  const warrantyBody = {
+    id: randomUUID(),
+    source: "CUSTOMER_WARRANTY",
+    unitId: choice.id,
+    saleUnitId: choice.saleUnitId,
+    supplierId: supplier.id,
+    faultReason: "Warranty fault",
+  };
+  const warranty = await intake(warrantyBody);
+  assert.equal(warranty.status, 201, JSON.stringify(warranty.body));
+  const record = await db.replacementRecord.findUniqueOrThrow({
+    where: { id: warrantyBody.id },
+    include: { warrantyClaim: true, oldUnit: true },
+  });
+  assert.equal(record.reservedCustomerId, sold.saleItem.sale.customerId);
+  assert.equal(record.warrantyClaim?.saleUnitId, choice.saleUnitId);
+  assert.equal(record.status, "PENDING_RETURN");
+  assert.equal(record.oldUnit.custody, "SHOP");
+  assert.equal(record.oldUnit.ownership, "CUSTOMER");
+  assert.equal(
+    (await intake({ ...warrantyBody, id: randomUUID() })).status,
+    409,
+  );
+  const list = await owner
+    .get("/api/v1/replacements")
+    .query({ q: sold.saleItem.sale.invoiceNumber })
+    .expect(200);
+  assert(
+    list.body.data.items.some(
+      (item: { id: string }) => item.id === warrantyBody.id,
+    ),
+  );
+});
+
+test("replacement quantity stays within the selected invoice, rejects shortages atomically and replays once", async () => {
+  const template = await db.batteryUnit.findFirstOrThrow({
+    where: { origin: "OPENING" },
+  });
+  const customer = await db.customer.findFirstOrThrow();
+  const supplier = await db.supplier.create({
+    data: { name: "Quantity supplier " + id },
+  });
+  const units = await Promise.all(
+    [0, 1, 2].map((index) =>
+      db.batteryUnit.create({
+        data: {
+          productId: template.productId,
+          batchId: template.batchId,
+          origin: "OPENING",
+          internalCode: `quantity-unit-${id}-${index}`,
+          condition: "GOOD",
+          custody: "CUSTOMER",
+          ownership: "CUSTOMER",
+          commercialState: "SOLD",
+        },
+      }),
+    ),
+  );
+  const sale = await db.sale.create({
+    data: {
+      invoiceNumber: "quantity-invoice-" + id,
+      customer: { connect: { id: customer.id } },
+      status: "CONFIRMED",
+      soldAt: new Date(),
+      posting: {
+        create: {
+          kind: "TEST",
+          sourceCode: "quantity-sale-" + id,
+          actorId: ownerId,
+        },
+      },
+      items: {
+        create: {
+          lineNumber: 1,
+          productId: template.productId,
+          productSnapshot: {},
+          quantity: 3,
+          units: {
+            create: units.map((unit) => ({
+              batteryUnitId: unit.id,
+              coverageStart: new Date("2026-01-01"),
+              coverageExpiry: new Date("2027-12-31"),
+            })),
+          },
+        },
+      },
+    },
+    include: { items: { include: { units: true } } },
+  });
+  const body = {
+    id: randomUUID(),
+    source: "CUSTOMER_WARRANTY",
+    unitId: units[0].id,
+    saleUnitId: sale.items[0].units.find(
+      (item) => item.batteryUnitId === units[0].id,
+    )!.id,
+    supplierId: supplier.id,
+    faultReason: "Multiple faulty batteries",
+    quantity: 2,
+  };
+  const send = async (payload: object) =>
+    owner
+      .post("/api/v1/replacements")
+      .set("Origin", origin())
+      .set("X-CSRF-Token", await csrf(owner))
+      .send(payload);
+  for (const quantity of [0, 1.5, 101])
+    assert.equal((await send({ ...body, quantity })).status, 400);
+  assert.equal((await send({ ...body, quantity: 4 })).status, 409);
+  assert.equal(
+    await db.replacementRecord.count({
+      where: { oldUnitId: { in: units.map((unit) => unit.id) } },
+    }),
+    0,
+  );
+  const registered = await send(body);
+  assert.equal(registered.status, 201, JSON.stringify(registered.body));
+  assert.equal(registered.body.data.quantity, 2);
+  assert.deepEqual((await send(body)).body, registered.body);
+  const records = await db.replacementRecord.findMany({
+    where: { oldUnitId: { in: units.map((unit) => unit.id) } },
+    include: {
+      warrantyClaim: { include: { saleUnit: { include: { saleItem: true } } } },
+    },
+  });
+  assert.equal(records.length, 2);
+  assert(
+    records.every(
+      (record) => record.warrantyClaim?.saleUnit.saleItem.saleId === sale.id,
+    ),
+  );
+  assert.equal(new Set(records.map((record) => record.oldUnitId)).size, 2);
+  assert.equal(
+    await db.auditLog.count({
+      where: {
+        action: "REPLACEMENT_CREATED",
+        metadata: { path: ["registrationId"], equals: body.id },
+      },
+    }),
+    2,
+  );
+});
+
+test("customer sales history returns only that customer's posted invoices and original product snapshots", async () => {
+  const sale = await db.sale.findFirstOrThrow({
+    where: { status: "CONFIRMED", items: { some: {} } },
+    include: { items: { include: { product: true } } },
+  });
+  const url = `/api/v1/customers/${sale.customerId}/sales`;
+  await request(app.getHttpServer()).get(url).expect(401);
+  await owner.get(`/api/v1/customers/${randomUUID()}/sales`).expect(404);
+  await owner.get("/api/v1/customers/not-a-uuid/sales").expect(400);
+  await owner.get(url).query({ page: 0 }).expect(400);
+  const response = await owner.get(url).query({ pageSize: 50 }).expect(200);
+  const posted = await db.sale.findMany({
+    where: {
+      customerId: sale.customerId,
+      status: { in: ["CONFIRMED", "PARTIALLY_RETURNED", "RETURNED"] },
+    },
+    orderBy: [{ soldAt: "desc" }, { id: "desc" }],
+  });
+  assert.equal(response.body.data.customer.id, sale.customerId);
+  assert.equal(response.body.data.total, posted.length);
+  assert.deepEqual(
+    response.body.data.items.map((item: { id: string }) => item.id),
+    posted.map((item) => item.id),
+  );
+  const returned = response.body.data.items.find(
+    (item: { id: string }) => item.id === sale.id,
+  );
+  assert(returned);
+  assert.equal(returned.soldAt, sale.soldAt?.toISOString() ?? null);
+  assert.equal(returned.total, sale.total.toFixed(2));
+  const selectedSale = await owner
+    .get(url)
+    .query({ saleId: sale.id })
+    .expect(200);
+  assert.equal(selectedSale.body.data.total, 1);
+  assert.deepEqual(
+    selectedSale.body.data.items.map((item: { id: string }) => item.id),
+    [sale.id],
+  );
+  await owner.get(url).query({ saleId: "invalid" }).expect(400);
+  const missingSale = await owner
+    .get(url)
+    .query({ saleId: randomUUID() })
+    .expect(200);
+  assert.equal(missingSale.body.data.items.length, 0);
+  for (const item of sale.items) {
+    const product = returned.products.find(
+      (row: { id: string }) => row.id === item.id,
+    );
+    assert(product);
+    const snapshot = item.productSnapshot as Prisma.JsonObject;
+    assert.equal(
+      product.name,
+      typeof snapshot.name === "string" ? snapshot.name : item.product.name,
+    );
+    assert.equal(
+      product.model,
+      typeof snapshot.model === "string" ? snapshot.model : item.product.model,
+    );
+    assert.equal(product.quantity, item.quantity.toString());
+    assert.equal(product.unitPrice, item.unitPrice.toFixed(2));
+    assert.equal(Object.hasOwn(product, "costTotal"), false);
+  }
+  const paginated = await owner
+    .get(url)
+    .query({ page: 1, pageSize: 1 })
+    .expect(200);
+  assert.equal(paginated.body.data.items.length, 1);
+  assert.equal(paginated.body.data.total, posted.length);
+  const empty = await db.customer.create({
+    data: { name: "No-history customer " + id, phone: "01700000000" },
+  });
+  const emptyHistory = await owner
+    .get(`/api/v1/customers/${empty.id}/sales`)
+    .expect(200);
+  assert.equal(emptyHistory.body.data.total, 0);
+  assert.deepEqual(emptyHistory.body.data.items, []);
 });
