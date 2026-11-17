@@ -52,20 +52,17 @@ export function CustomerSalesHistoryDialog({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/40" />
         <Dialog.Content
           className="feature-dialog customer-history-dialog"
+          aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             returnFocus();
           }}
         >
-          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div>
               <Dialog.Title className="text-lg font-bold">
                 {sale ? "Sale Details" : "Customer Details"} — {details.name}
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs text-slate-500">
-                Contact information and sales history, with products grouped by
-                invoice and sale date.
-              </Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <Button
@@ -78,10 +75,12 @@ export function CustomerSalesHistoryDialog({
             </Dialog.Close>
           </header>
           <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
-            <div className="mb-4 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+            <div className="customer-history-contact mb-4 grid grid-cols-2 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div>
                 <p className="text-xs text-slate-500">Mobile</p>
-                <p className="mt-1 text-sm font-medium">{details.phone}</p>
+                <p className="mt-1 break-words text-sm font-medium">
+                  {details.phone}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Address</p>
