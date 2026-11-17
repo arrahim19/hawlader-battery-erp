@@ -3,7 +3,6 @@ import { useDeferredValue, useState } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
 import {
   BatteryCharging,
-  Box,
   ChevronLeft,
   ChevronRight,
   Cog,
@@ -154,17 +153,6 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const pages = Math.max(1, Math.ceil((products.data?.total ?? 0) / pageSize));
   return (
     <div className="inventory-workspace">
-      <div className="erp-page-title">
-        <div>
-          <span className="title-icon">
-            <Box size={39} strokeWidth={1.8} />
-          </span>
-          <div>
-            <h2>Inventory / Stock</h2>
-            <p>ক্যাটাগরি, পণ্যের নাম ও স্টক দেখুন। Purchase থেকে স্টক যোগ করুন।</p>
-          </div>
-        </div>
-      </div>
       {message ? (
         <p
           role="status"

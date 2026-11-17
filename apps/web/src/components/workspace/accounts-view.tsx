@@ -5,7 +5,6 @@ import {
   ChartPie,
   FileText,
   List,
-  Scale,
   Wallet,
   ChevronLeft,
   ChevronRight,
@@ -22,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/components/session-provider";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { ExpenseDialog } from "./expense-dialog";
+import { ExpenseDonut } from "./expense-donut";
 import { ExpensesPanel } from "./expenses-panel";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 export function AccountsView({
@@ -75,21 +75,6 @@ export function AccountsView({
     (sum, category) => sum + category.amount,
     BigInt(0),
   );
-  let cumulative = BigInt(0);
-  const segments = categoryTotals.map((category) => {
-    const start = totalCents
-      ? Number((cumulative * BigInt(10000)) / totalCents) / 100
-      : 0;
-    cumulative += category.amount;
-    const end = totalCents
-      ? Number((cumulative * BigInt(10000)) / totalCents) / 100
-      : 0;
-    return `${category.color} ${start}% ${end}%`;
-  });
-  const chartGradient =
-    totalCents > 0
-      ? `conic-gradient(${segments.join(", ")})`
-      : "conic-gradient(#eef1f6 0% 100%)";
   const expenseChartTotal = expenses.data ? decimalAmount(totalCents) : null;
   const companyTransactions = (
     preview ? [] : (data?.financials?.companyTransactions ?? [])
@@ -120,7 +105,7 @@ export function AccountsView({
           items={[
             { id: "summary", label: "Account Summary", icon: Wallet },
             { id: "transactions", label: "Transactions", icon: List },
-            { id: "categories", label: "Expense Categories", icon: ChartPie },
+            { id: "categories", label: "Expense Summary", icon: ChartPie },
             { id: "reports", label: "Reports", icon: ChartColumnIncreasing },
           ]}
         />
@@ -152,12 +137,6 @@ export function AccountsView({
           tone="red"
         />
         <StatCard
-          label="Current Cash Balance"
-          value="—"
-          icon={Scale}
-          tone="blue"
-        />
-        <StatCard
           label="Total Transactions"
           value={money(
             preview ? null : data?.financials?.companyTransactionAmount,
@@ -169,8 +148,8 @@ export function AccountsView({
       <nav className="accounts-mobile-panels" aria-label="Accounts panels">
         {[
           ["expenses", "Expenses"],
-          ["categories", "Categories"],
           ["transactions", "Transactions"],
+          ["categories", "Expense Summary"],
         ].map(([id, label]) => (
           <button
             type="button"
@@ -196,23 +175,15 @@ export function AccountsView({
           onPageSize={resizeExpensePage}
         />
         <Panel
-          title="Expense by Category"
+          title="Expense Summary"
           icon={ChartPie}
           className="accounts-category-panel"
         >
           <div className="donut-layout">
-            <div
-              className="empty-donut"
-              role="img"
-              aria-label={`Expense breakdown, total ${money(preview ? null : expenseChartTotal)}`}
-              style={{
-                borderColor: "transparent",
-                background: `linear-gradient(#fff, #fff) padding-box, ${chartGradient} border-box`,
-              }}
-            >
-              <strong>{money(preview ? null : expenseChartTotal)}</strong>
-              <small>Total</small>
-            </div>
+            <ExpenseDonut
+              categories={categoryTotals}
+              totalLabel={money(preview ? null : expenseChartTotal)}
+            />
             <div className="donut-legend">
               {categoryTotals.map(({ label, color, amount }) => (
                 <div key={label}>
@@ -225,17 +196,7 @@ export function AccountsView({
                         : expenses.data
                           ? decimalAmount(amount)
                           : "0.00",
-                    )}{" "}
-                    ·{" "}
-                    {totalCents
-                      ? (
-                          Number(
-                            (amount * BigInt(10000) + totalCents / BigInt(2)) /
-                              totalCents,
-                          ) / 100
-                        ).toFixed(2)
-                      : "0.00"}
-                    %
+                    )}
                   </span>
                 </div>
               ))}
@@ -243,11 +204,7 @@ export function AccountsView({
           </div>
         </Panel>
         <Panel
-          title={
-            current === "categories"
-              ? "Expense Categories"
-              : "Recent Transactions"
-          }
+          title={current === "categories" ? "Expense Summary" : "Transactions"}
           icon={List}
           className="accounts-transactions-panel"
           action={
@@ -255,7 +212,7 @@ export function AccountsView({
               type="search"
               aria-label="Search company"
               placeholder="Search company..."
-              className="w-36 min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs"
+              className="accounts-company-search w-36 min-w-0 rounded-md border bg-white px-2 py-1 text-xs"
               value={companySearch}
               onChange={(event) => {
                 setCompanySearch(event.target.value);
@@ -269,7 +226,7 @@ export function AccountsView({
               <table className="erp-table">
                 <thead>
                   <tr>
-                    {["Date", "Company", "Challan No.", "Type", "Amount"].map(
+                    {["Date", "Company", "Challan No.", "Amount"].map(
                       (label) => (
                         <th key={label} scope="col">
                           {label}
@@ -286,7 +243,6 @@ export function AccountsView({
                       <td title={transaction.challanNumber ?? undefined}>
                         {transaction.challanNumber || "—"}
                       </td>
-                      <td>{transaction.type}</td>
                       <td>{money(transaction.amount)}</td>
                     </tr>
                   ))}
@@ -303,7 +259,7 @@ export function AccountsView({
               columns={
                 current === "categories"
                   ? ["Category", "Account", "Status", "Action"]
-                  : ["Date", "Company", "Challan No.", "Type", "Amount"]
+                  : ["Date", "Company", "Challan No.", "Amount"]
               }
               description="কোম্পানির পেমেন্ট ও রিফান্ড এখানে দেখা যাবে।"
             />

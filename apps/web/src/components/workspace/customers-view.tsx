@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  CreditCard,
   Eye,
   Filter,
   Plus,
@@ -99,8 +98,6 @@ export function CustomersView({
         items={[
           { id: "list", label: "Customer List", icon: Users },
           { id: "new", label: "Add Customer", icon: Plus },
-          { id: "groups", label: "Customer Groups", icon: Car },
-          { id: "credit", label: "Credit Customers", icon: CreditCard },
           { id: "ledger", label: "Customer Ledger", icon: ClipboardList },
         ]}
       />
@@ -169,12 +166,6 @@ export function CustomersView({
                 <Filter />
                 Filter
               </Button>
-              <Button asChild className="erp-button">
-                <Link href={workspaceHref("customers", "new", preview)}>
-                  <Plus />
-                  New Customer
-                </Link>
-              </Button>
             </form>
           </Panel>
           {current === "groups" ? (
@@ -220,7 +211,7 @@ export function CustomersView({
             </Panel>
           ) : null}
           <div className="master-detail-layout">
-            <Panel title={title} icon={Users}>
+            <Panel title={title} icon={Users} className="customer-list-panel">
               {current === "ledger" ? (
                 <p className="px-4 pb-3 text-xs text-slate-500">
                   Select a customer to view their sales total and outstanding
@@ -284,7 +275,9 @@ export function CustomersView({
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
+                            size="icon"
+                            aria-label="Details"
+                            title={`Details — ${customer.name}`}
                             onClick={(event) => {
                               historyButton.current = event.currentTarget;
                               setSelectedId(customer.id);
@@ -292,7 +285,6 @@ export function CustomersView({
                             }}
                           >
                             <Eye />
-                            Details
                           </Button>
                         </td>
                       </tr>
@@ -349,7 +341,10 @@ export function CustomersView({
                 </div>
               </div>
             </Panel>
-            <Panel title="Customer Details" className="erp-details">
+            <Panel
+              title="Customer Details"
+              className="erp-details customer-details-panel"
+            >
               {selected ? (
                 <>
                   <dl>

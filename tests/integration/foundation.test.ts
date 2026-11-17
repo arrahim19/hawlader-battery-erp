@@ -2159,7 +2159,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
   const first = await complete(body, key);
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.equal(first.body.data.total, "210.85");
-  assert.match(first.body.data.invoiceNumber, /^HWB-\d{6}$/);
+  assert.match(first.body.data.invoiceNumber, /^HB-\d{4}$/);
   assert.equal(first.body.data.paid, "100.05");
   assert.equal(first.body.data.due, "110.80");
   assert.equal(first.body.data.quantity, 4);
@@ -2310,7 +2310,7 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
     .filter((response) => response.status === 201)
     .map((response) => response.body.data.invoiceNumber as string);
   assert.equal(new Set(invoices).size, 3);
-  for (const invoice of invoices) assert.match(invoice, /^HWB-\d{6}$/);
+  for (const invoice of invoices) assert.match(invoice, /^HB-\d{4}$/);
   assert.equal(
     await db.saleUnit.count({
       where: { batteryUnitId: units[1].id, releasedAt: null },

@@ -100,7 +100,7 @@ export function ExpensesPanel({
                     className="expense-description"
                     title={expense.challanNumber ?? undefined}
                   >
-                    {expense.challanNumber || "—"}
+                    {expense.challanNumber || "N/A"}
                   </td>
                   <td className="text-right font-semibold">
                     {money(expense.amount)}

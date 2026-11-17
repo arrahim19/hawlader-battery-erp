@@ -177,7 +177,6 @@ export function TransactionView({
                   label: "Due Collections",
                   icon: ClipboardList,
                 },
-                { id: "reports", label: "Sales Report", icon: FileText },
               ]
         }
       />

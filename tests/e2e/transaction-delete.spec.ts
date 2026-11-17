@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-for (const kind of ["sales", "purchases"] as const) {
-  test(`${kind} deletion requires confirmation, keeps failed rows, and reloads after success`, async ({
+for (const [kind, view] of [
+  ["sales", "new"],
+  ["sales", "list"],
+  ["purchases", "new"],
+] as const) {
+  test(`${kind} ${view} deletion requires confirmation, keeps failed rows, and reloads after success`, async ({
     page,
   }, info) => {
     const label = kind === "sales" ? "HWB-000001" : "PUR-TEST";
@@ -153,14 +157,25 @@ for (const kind of ["sales", "purchases"] as const) {
       errors.push("Unhandled " + request.method() + " " + path);
       return route.abort();
     });
-    await page.goto("/" + kind);
-    await expect(
-      page.getByRole("button", {
-        name: "Confirm " + (kind === "sales" ? "Sale" : "Purchase"),
-        exact: true,
-      }),
-    ).toBeVisible();
-    if (kind === "sales") {
+    await page.goto("/" + kind + (view === "list" ? "/list" : ""));
+    if (view === "list") {
+      await expect(
+        page.getByRole("heading", { name: "Sales List", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("columnheader", { name: "Status", exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Details", exact: true }),
+      ).toBeVisible();
+    } else
+      await expect(
+        page.getByRole("button", {
+          name: "Confirm " + (kind === "sales" ? "Sale" : "Purchase"),
+          exact: true,
+        }),
+      ).toBeVisible();
+    if (kind === "sales" && view !== "list") {
       await page
         .getByLabel("Select customer", { exact: true })
         .selectOption("customer");
@@ -172,7 +187,7 @@ for (const kind of ["sales", "purchases"] as const) {
         .selectOption("draft-product");
       await page.getByLabel("Sales quantity", { exact: true }).fill("2");
     }
-    if (info.project.name === "mobile") {
+    if (info.project.name === "mobile" && view !== "list") {
       if (kind === "sales")
         await page
           .getByRole("navigation", { name: "Sale panels" })
@@ -183,6 +198,10 @@ for (const kind of ["sales", "purchases"] as const) {
           .getByRole("button", { name: "Recent Purchases", exact: true })
           .click();
     }
+    if (kind === "sales" && view !== "list")
+      await page
+        .getByRole("button", { name: "Recent Sales", exact: true })
+        .click();
     const trigger = page.getByRole("button", {
       name: "Delete " + label,
       exact: true,
@@ -212,7 +231,7 @@ for (const kind of ["sales", "purchases"] as const) {
     await submit.click();
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toHaveCount(0);
-    if (kind === "sales") {
+    if (kind === "sales" && view !== "list") {
       if (info.project.name === "mobile")
         await page
           .getByRole("navigation", { name: "Sale panels" })
@@ -225,10 +244,7 @@ for (const kind of ["sales", "purchases"] as const) {
         page.getByLabel("Sales product", { exact: true }),
       ).toHaveValue("draft-product");
     }
-    expect(calls).toEqual([
-      { confirmed: true },
-      { confirmed: true },
-    ]);
+    expect(calls).toEqual([{ confirmed: true }, { confirmed: true }]);
     expect(errors).toEqual([]);
   });
 }

@@ -30,6 +30,20 @@ export function settings() {
     throw new Error("DATABASE_URL must be a PostgreSQL connection URL.");
   if (production && parsed.protocol !== "https:")
     throw new Error("Production APP_ORIGIN must use HTTPS.");
+  const allowedOrigins = [parsed.origin];
+  if (!production) {
+    for (const value of (process.env.APP_DEV_ORIGINS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      const extra = new URL(value);
+      if (!["http:", "https:"].includes(extra.protocol))
+        throw new Error(
+          "APP_DEV_ORIGINS must contain comma-separated HTTP(S) origins.",
+        );
+      allowedOrigins.push(extra.origin);
+    }
+  }
   const idleMinutes = Number(process.env.SESSION_IDLE_MINUTES ?? 60);
   const absoluteHours = Number(process.env.SESSION_ABSOLUTE_HOURS ?? 12);
   const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
@@ -52,6 +66,7 @@ export function settings() {
   return {
     production,
     origin: parsed.origin,
+    allowedOrigins,
     csrfSecret,
     databaseUrl,
     idleMinutes,

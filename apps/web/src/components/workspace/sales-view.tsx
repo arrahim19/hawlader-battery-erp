@@ -8,11 +8,13 @@ import {
 } from "react";
 import { Dialog } from "radix-ui";
 import {
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   CreditCard,
+  Eye,
   FileText,
   List,
   LoaderCircle,
@@ -47,7 +49,14 @@ import { CustomerForm } from "./customer-form";
 import { TransactionView } from "./transaction-view";
 import { TransactionDeleteButton } from "./transaction-delete-button";
 
+import {
+  SaleProductEntry,
+  blankSaleEntry,
+  type SaleEntry,
+} from "./sale-product-entry";
+
 type SaleLine = {
+  entryId?: string;
   productId: string;
   name: string;
   typeName: string;
@@ -132,15 +141,16 @@ function RecentSales({
                   <td>
                     <Button
                       type="button"
-                      size="sm"
+                      size="icon"
                       variant="outline"
-                      style={{ width: "auto" }}
+                      aria-label="Details"
+                      title={`Details — ${sale.invoiceNumber ?? sale.id}`}
                       onClick={(event) => {
                         detailsButton.current = event.currentTarget;
                         setDetails(sale);
                       }}
                     >
-                      Details
+                      <Eye />
                     </Button>
                   </td>
                   <td>
@@ -249,11 +259,11 @@ export function SalesView({
   );
   const [customerOpen, setCustomerOpen] = useState(false);
   const [saleDate, setSaleDate] = useState(todayInDhaka);
-  const [typeId, setTypeId] = useState("");
-  const [productId, setProductId] = useState("");
-  const [quantity, setQuantity] = useState("0");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [cart, setCart] = useState<SaleLine[]>([]);
+  const [entries, setEntries] = useState<SaleEntry[]>([
+    blankSaleEntry("entry-0"),
+  ]);
+  const entrySequence = useRef(1);
+  const entryList = useRef<HTMLDivElement>(null);
   const canPay =
     preview ||
     Boolean(
@@ -274,6 +284,32 @@ export function SalesView({
   const [completed, setCompleted] = useState<
     (CompletedSale & { items: SaleLine[] }) | null
   >(null);
+  const cart: SaleLine[] = entries.flatMap((entry) => {
+    const product = options.data?.products.find(
+      (product) =>
+        product.id === entry.productId && product.type.id === entry.typeId,
+    );
+    const quantity = /^\d+$/.test(entry.quantity) ? Number(entry.quantity) : 0;
+    if (
+      !product ||
+      !Number.isSafeInteger(quantity) ||
+      quantity < 1 ||
+      quantity > 10000 ||
+      !validPrice(entry.unitPrice)
+    )
+      return [];
+    return [
+      {
+        entryId: entry.id,
+        productId: product.id,
+        name: product.name,
+        typeName: product.type.name,
+        quantity,
+        unitPrice: decimalAmount(cents(entry.unitPrice)),
+        model: product.model,
+      },
+    ];
+  });
   const displayedItems = completed?.items ?? cart;
   const showHistory = historyOpen || displayedItems.length === 0;
   const itemPages = Math.max(
@@ -296,22 +332,13 @@ export function SalesView({
   ];
   const customer = customers.find((item) => item.id === customerId);
   const customerDue = decimalAmount(cents(customer?.due ?? "0.00"));
-  const products =
-    options.data?.products.filter((item) => item.type.id === typeId) ?? [];
-  const product = products.find((item) => item.id === productId);
-  const count = /^\d+$/.test(quantity) ? Number(quantity) : 0;
-  const validQuantity =
-    Number.isSafeInteger(count) && count >= 1 && count <= 10000;
   const totalCents = completed
     ? cents(completed.total)
     : cart.reduce(
         (sum, line) => sum + cents(line.unitPrice) * BigInt(line.quantity),
-        product && validQuantity ? cents(unitPrice) * BigInt(count) : BigInt(0),
+        BigInt(0),
       );
   const total = decimalAmount(totalCents);
-  const lineTotal = validQuantity
-    ? decimalAmount(cents(unitPrice) * BigInt(count))
-    : "0.00";
   const paid =
     completed?.paid ??
     (saleType === "cash"
@@ -344,69 +371,101 @@ export function SalesView({
   }, [current, mobilePanel, showHistory]);
 
   function resetEntry() {
-    setProductId("");
-    setQuantity("0");
-    setUnitPrice("");
+    setEntries([blankSaleEntry("entry-0")]);
   }
   function addLine() {
-    setError("");
-    if (!product || !validQuantity || !validPrice(unitPrice)) {
-      setError("পণ্য, সঠিক quantity ও unit price দিন।");
-      return;
-    }
-    if (count > Number(product.availableQuantity)) {
-      setError("বিক্রয়যোগ্য স্টকের চেয়ে বেশি quantity দেওয়া যাবে না।");
-      return;
-    }
-    if (cart.some((line) => line.productId === product.id)) {
-      setError("পণ্যটি cart-এ আছে। পরিবর্তনের জন্য আগের লাইন সরিয়ে আবার যোগ করুন।");
-      return;
-    }
-    setCart((lines) => [
-      ...lines,
-      {
-        productId: product.id,
-        name: product.name,
-        typeName: product.type.name,
-        quantity: count,
-        unitPrice: decimalAmount(cents(unitPrice)),
-        model: product.model,
-      },
-    ]);
-    setItemsPage(Math.ceil((cart.length + 1) / itemsPerPage));
+    if (entries.length >= 100) return;
+    const row = blankSaleEntry("entry-" + entrySequence.current++);
+    row.typeId = entries.at(-1)?.typeId ?? "";
+    setEntries((previous) => [...previous, row]);
+    setItemsPage(Math.max(1, Math.ceil(cart.length / itemsPerPage)));
     setHistoryOpen(false);
-    resetEntry();
     setCompleted(null);
+    setError("");
+    requestAnimationFrame(() => {
+      const list = entryList.current;
+      if (list) {
+        list.scrollTop = 0;
+        list.firstElementChild
+          ?.querySelector("select")
+          ?.focus({ preventScroll: true });
+      }
+    });
+  }
+  function updateEntry(id: string, patch: Partial<SaleEntry>) {
+    setEntries((previous) =>
+      previous.map((entry) =>
+        entry.id === id ? { ...entry, ...patch, id } : entry,
+      ),
+    );
+    setCompleted(null);
+    setHistoryOpen(false);
+    setError("");
+  }
+  function removeEntry(id: string) {
+    setEntries((previous) => {
+      const remaining = previous.filter((entry) => entry.id !== id);
+      return remaining.length ? remaining : [blankSaleEntry("entry-0")];
+    });
+    setCompleted(null);
+    setError("");
+  }
+  function removeProduct(productId: string) {
+    setEntries((previous) => {
+      const remaining = previous.filter(
+        (entry) => entry.productId !== productId,
+      );
+      return remaining.length ? remaining : [blankSaleEntry("entry-0")];
+    });
+    setError("");
   }
   async function completeSale(event: FormEvent) {
     event.preventDefault();
     if (preview || submitting.current || completed) return;
     setError("");
-    let items = cart;
-    if (productId) {
-      if (!product || !validQuantity || !validPrice(unitPrice)) {
-        setError("পণ্য, সঠিক quantity ও unit price দিন।");
+    const items = cart;
+    const selected = new Set<string>();
+    for (const [index, entry] of entries.entries()) {
+      if (
+        !entry.productId &&
+        !entry.unitPrice &&
+        (!entry.quantity || entry.quantity === "0")
+      )
+        continue;
+      const product = options.data?.products.find(
+        (product) =>
+          product.id === entry.productId && product.type.id === entry.typeId,
+      );
+      const quantity = /^\d+$/.test(entry.quantity)
+        ? Number(entry.quantity)
+        : 0;
+      if (
+        !product ||
+        !Number.isSafeInteger(quantity) ||
+        quantity < 1 ||
+        quantity > 10000 ||
+        !validPrice(entry.unitPrice)
+      ) {
+        setError(
+          "Product " +
+            (index + 1) +
+            ": select a product and enter a valid quantity and unit price.",
+        );
         return;
       }
-      if (count > Number(product.availableQuantity)) {
-        setError("বিক্রয়যোগ্য স্টকের চেয়ে বেশি quantity দেওয়া যাবে না।");
+      if (quantity > Number(product.availableQuantity)) {
+        setError(
+          "Product " + (index + 1) + ": quantity exceeds available stock.",
+        );
         return;
       }
-      if (cart.some((line) => line.productId === product.id)) {
-        setError("পণ্যটি Sale Items-এ আছে। পরিবর্তনের জন্য আগের লাইন সরিয়ে দিন।");
+      if (selected.has(product.id)) {
+        setError(
+          "This product is already added. Update its existing row or remove the duplicate row.",
+        );
         return;
       }
-      items = [
-        ...cart,
-        {
-          productId: product.id,
-          name: product.name,
-          typeName: product.type.name,
-          quantity: count,
-          unitPrice: decimalAmount(cents(unitPrice)),
-          model: product.model,
-        },
-      ];
+      selected.add(product.id);
     }
     if (!customer || !items.length) {
       setError("একজন customer এবং বিক্রয়ের জন্য অন্তত একটি পণ্য বাছাই করুন।");
@@ -447,7 +506,6 @@ export function SalesView({
       setCompleted({ ...result, items });
       setHistoryOpen(true);
       setPage(1);
-      setCart([]);
       resetEntry();
       setPartialPaid("");
       setNotes("");
@@ -467,7 +525,9 @@ export function SalesView({
   }
   if (!["new", "list"].includes(current))
     return (
-      <TransactionView purchase={false} preview={preview} view={current} />
+      <div className="sales-workspace sales-secondary-workspace">
+        <TransactionView purchase={false} preview={preview} view={current} />
+      </div>
     );
 
   return (
@@ -484,7 +544,6 @@ export function SalesView({
           { id: "list", label: "Sales List", icon: List },
           { id: "returns", label: "Sales Return", icon: RotateCcw },
           { id: "collections", label: "Due Collections", icon: ClipboardList },
-          { id: "reports", label: "Sales Report", icon: FileText },
         ]}
       />
       <div className="sales-notices">
@@ -512,86 +571,21 @@ export function SalesView({
       </div>
       {current === "list" ? (
         <Panel title="Sales List" className="sales-list-panel">
-          <div className="erp-table-wrap">
-            <table className="erp-table">
-              <caption className="sr-only">Sales</caption>
-              <thead>
-                <tr>
-                  {[
-                    "Invoice",
-                    "Date",
-                    "Customer",
-                    "Items",
-                    "Qty",
-                    "Total",
-                    "Paid",
-                    "Due",
-                    "Status",
-                  ].map((column) => (
-                    <th key={column}>{column}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {listing.data?.items.map((sale) => (
-                  <tr key={sale.id}>
-                    <td>{sale.invoiceNumber || "—"}</td>
-                    <td>{sale.saleDate || "—"}</td>
-                    <td>
-                      {sale.customer.name}
-                      <small className="block text-slate-500">
-                        {sale.customer.phone}
-                      </small>
-                    </td>
-                    <td>{sale.itemCount}</td>
-                    <td>{sale.quantity}</td>
-                    <td>{money(sale.total)}</td>
-                    <td>{money(sale.paid)}</td>
-                    <td>{money(sale.due)}</td>
-                    <td>{sale.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!listing.data?.items.length ? (
-            <div className="erp-empty" role="status">
-              <PackageOpen />
-              <p>
-                {loading || listing.loading
-                  ? "Loading sales..."
-                  : listing.error
-                    ? "Unable to load sales"
-                    : "No records to display"}
-              </p>
-              <span>নিশ্চিত বিক্রয় এই তালিকায় দেখা যাবে।</span>
-            </div>
-          ) : null}
-          <div className="erp-pager">
-            <span>
-              Page {page} / {pages}
-            </span>
-            <div>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Previous sales page"
-                disabled={page <= 1 || listing.loading}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Next sales page"
-                disabled={page >= pages || listing.loading}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-          </div>
+          <RecentSales
+            data={listing.data}
+            loading={loading || listing.loading}
+            error={listing.error}
+            page={page}
+            pages={pages}
+            onPage={setPage}
+            bodyRef={cartBody}
+            preview={preview}
+            onDeleted={(id) => {
+              if (completed?.id === id) setCompleted(null);
+              setPage(1);
+              setRevision((value) => value + 1);
+            }}
+          />
         </Panel>
       ) : (
         <form
@@ -661,14 +655,40 @@ export function SalesView({
                           New Customer
                         </Button>
                       </div>
-                      <Field label="Invoice Date" required>
-                        <input
-                          type="date"
-                          aria-label="Sale date"
-                          value={saleDate}
-                          onChange={(event) => setSaleDate(event.target.value)}
-                          required
-                        />
+                      <Field
+                        label={
+                          <>
+                            <span className="sales-date-full-label">
+                              Invoice Date
+                            </span>
+                            <span className="sales-date-short-label">Date</span>
+                          </>
+                        }
+                        required
+                      >
+                        <div
+                          className="sales-date-control"
+                          title={`Invoice Date: ${saleDate}`}
+                        >
+                          <input
+                            type="date"
+                            aria-label="Sale date"
+                            value={saleDate}
+                            onChange={(event) =>
+                              setSaleDate(event.target.value)
+                            }
+                            required
+                          />
+                          <CalendarDays
+                            className="sales-date-icon"
+                            aria-hidden="true"
+                          />
+                          <span className="sales-date-value" aria-hidden="true">
+                            {saleDate
+                              ? `${saleDate.slice(8, 10)}/${saleDate.slice(5, 7)}/${saleDate.slice(2, 4)}`
+                              : ""}
+                          </span>
+                        </div>
                       </Field>
                     </div>
                     <p className="sales-customer-contact">
@@ -686,7 +706,7 @@ export function SalesView({
                           ]
                             .filter(Boolean)
                             .join(" · ")
-                        : "পুরোনো কাস্টমার বাছুন অথবা নতুন কাস্টমারের তথ্য দিন।"}
+                        : ""}
                     </p>
                   </div>
                 </Panel>
@@ -699,133 +719,27 @@ export function SalesView({
                       variant="outline"
                       size="sm"
                       onClick={addLine}
-                      disabled={
-                        !product || Number(product.availableQuantity) <= 0
-                      }
+                      disabled={entries.length >= 100}
                     >
                       <Plus /> Add Another Product
                     </Button>
                   }
                 >
-                  <div className="erp-form-body">
-                    <div className="sales-product-fields">
-                      <Field
-                        label="Product Category"
-                        className="sales-type-field"
-                      >
-                        <select
-                          aria-label="Sales product category"
-                          value={typeId}
-                          disabled={!options.data?.types.length}
-                          onChange={(event) => {
-                            setTypeId(event.target.value);
-                            setCompleted(null);
-                            resetEntry();
-                            setError("");
-                          }}
-                        >
-                          <option value="">ক্যাটাগরি নির্বাচন করুন</option>
-                          {options.data?.types.map((type) => (
-                            <option key={type.id} value={type.id}>
-                              {type.name}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Product" className="sales-product-field">
-                        <select
-                          aria-label="Sales product"
-                          value={productId}
-                          disabled={!typeId || !products.length}
-                          onChange={(event) => {
-                            const selected = products.find(
-                              (item) => item.id === event.target.value,
-                            );
-                            setProductId(event.target.value);
-                            setCompleted(null);
-                            setQuantity("0");
-                            setUnitPrice(
-                              selected &&
-                                cents(selected.defaultSellingPrice) > BigInt(0)
-                                ? selected.defaultSellingPrice
-                                : "",
-                            );
-
-                            setError("");
-                          }}
-                        >
-                          <option value="">
-                            {!typeId
-                              ? "আগে ক্যাটাগরি নির্বাচন করুন"
-                              : !products.length
-                                ? "এই ক্যাটাগরিতে কোনো পণ্য নেই"
-                                : "পণ্য নির্বাচন করুন"}
-                          </option>
-                          {products.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                              {item.model ? " · " + item.model : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Qty" className="sales-qty-field">
-                        <input
-                          aria-label="Sales quantity"
-                          type="number"
-                          min="0"
-                          max="10000"
-                          step="1"
-                          value={quantity}
-                          placeholder="0"
-                          onFocus={() => {
-                            if (quantity === "0") setQuantity("");
-                          }}
-                          onBlur={() => {
-                            if (!quantity) setQuantity("0");
-                          }}
-                          onChange={(event) => {
-                            setQuantity(
-                              event.target.value.replace(/^0+(?=\d)/, ""),
-                            );
-                          }}
-                        />
-                      </Field>
-                      <Field
-                        label="Unit Price (৳)"
-                        className="sales-price-field"
-                      >
-                        <input
-                          aria-label="Unit sale price"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={unitPrice}
-                          onFocus={() => {
-                            if (/^0(?:\.0*)?$/.test(unitPrice))
-                              setUnitPrice("");
-                          }}
-                          onChange={(event) =>
-                            setUnitPrice(
-                              event.target.value.replace(/^0+(?=\d)/, ""),
-                            )
-                          }
-                        />
-                      </Field>
-                      <Field label="Total (৳)" className="sales-total-field">
-                        <input
-                          aria-label="Sales line total"
-                          readOnly
-                          value={decimalAmount(cents(lineTotal))}
-                        />
-                      </Field>
-                    </div>
-                    <p className="sales-stock-hint">
-                      {product
-                        ? `বিক্রয়যোগ্য স্টক: ${product.availableQuantity} ${product.unit}`
-                        : "ক্যাটাগরি ও পণ্য বাছাই করে quantity এবং unit price দিন।"}
-                    </p>
+                  <div
+                    className="erp-form-body sales-product-entries"
+                    ref={entryList}
+                  >
+                    {[...entries].reverse().map((entry, index) => (
+                      <SaleProductEntry
+                        key={entry.id}
+                        entry={entry}
+                        index={entries.length - 1 - index}
+                        options={options.data}
+                        removable={entries.length > 1}
+                        onChange={(patch) => updateEntry(entry.id, patch)}
+                        onRemove={() => removeEntry(entry.id)}
+                      />
+                    ))}
                   </div>
                 </Panel>
                 <Panel
@@ -853,7 +767,7 @@ export function SalesView({
                           disabled={!displayedItems.length}
                           onClick={() => {
                             setCompleted(null);
-                            setCart([]);
+                            resetEntry();
                             setPartialPaid("");
                             setError("");
                           }}
@@ -914,7 +828,7 @@ export function SalesView({
                             </thead>
                             <tbody>
                               {visibleItems.map((line) => (
-                                <tr key={line.productId}>
+                                <tr key={line.entryId ?? line.productId}>
                                   <td>
                                     {line.name}
                                     <small className="block text-slate-500">
@@ -943,12 +857,7 @@ export function SalesView({
                                       aria-label={`Remove ${line.name}`}
                                       disabled={Boolean(completed)}
                                       onClick={() =>
-                                        setCart((lines) =>
-                                          lines.filter(
-                                            (item) =>
-                                              item.productId !== line.productId,
-                                          ),
-                                        )
+                                        removeProduct(line.productId)
                                       }
                                     >
                                       <Trash2 />
@@ -1011,16 +920,13 @@ export function SalesView({
                   </h2>
                   <SummaryRows
                     rows={[
-                      [
-                        "Total Items",
-                        String(displayedItems.length + (product ? 1 : 0)),
-                      ],
+                      ["Total Items", String(displayedItems.length)],
                       [
                         "Total Quantity",
                         String(
                           displayedItems.reduce(
                             (sum, line) => sum + line.quantity,
-                            product && validQuantity ? count : 0,
+                            0,
                           ),
                         ),
                       ],
@@ -1122,9 +1028,8 @@ export function SalesView({
                   Boolean(completed) ||
                   busy ||
                   !customer ||
-                  (!product && !cart.length) ||
-                  Boolean(moduleError) ||
-                  Boolean(product && Number(product.availableQuantity) <= 0)
+                  !cart.length ||
+                  Boolean(moduleError)
                 }
               >
                 {saving ? <LoaderCircle className="animate-spin" /> : <Check />}

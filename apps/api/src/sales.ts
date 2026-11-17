@@ -370,7 +370,7 @@ export class SalesController {
           data: { actorId, kind: operation, sourceCode: "sale:" + key },
         });
         const [invoice] = await tx.$queryRaw<{ invoiceNumber: string }[]>`
-          SELECT 'HWB-' || lpad(nextval('"Sale_invoice_number_seq"')::text, 6, '0') AS "invoiceNumber"
+          SELECT 'HB-' || lpad(nextval('"Sale_invoice_number_seq"')::text, 4, '0') AS "invoiceNumber"
         `;
         const invoiceNumber = invoice.invoiceNumber;
         const sale = await tx.sale.create({

@@ -133,7 +133,7 @@ export function ModuleTabs({
   items: { id: string; label: string; icon: LucideIcon; permission?: string }[];
 }) {
   return (
-    <nav className="erp-tabs" aria-label="Module tabs">
+    <nav className="erp-tabs" data-module={moduleId} aria-label="Module tabs">
       {items.map(({ id, label, icon: Icon }) => (
         <Link
           key={id}
@@ -260,7 +260,7 @@ export function Field({
   required = false,
   className,
 }: {
-  label: string;
+  label: ReactNode;
   children: ReactNode;
   required?: boolean;
   className?: string;

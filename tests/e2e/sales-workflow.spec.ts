@@ -315,6 +315,31 @@ async function salePanel(page: Page, name: "Details" | "Items" | "Payment") {
     await panels.getByRole("button", { name: new RegExp(`^${name}`) }).click();
 }
 
+async function expectCartProduct(page: Page, name: string) {
+  const previous = page.getByRole("button", {
+    name: "Previous sale items page",
+    exact: true,
+  });
+  const next = page.getByRole("button", {
+    name: "Next sale items page",
+    exact: true,
+  });
+  while (await previous.isEnabled()) await previous.click();
+  const row = page
+    .getByRole("table", { name: "Sale items", exact: true })
+    .locator("tbody tr")
+    .filter({ hasText: name });
+  for (let index = 0; index < 100; index++) {
+    if (await row.count()) {
+      await expect(row).toBeVisible();
+      return;
+    }
+    if (await next.isDisabled()) break;
+    await next.click();
+  }
+  throw new Error("Missing cart product: " + name);
+}
+
 test("saved sales appear on entry, survive reload, and paginate without changing the draft", async ({
   page,
 }, info) => {
@@ -366,11 +391,13 @@ test("saved sales appear on entry, survive reload, and paginate without changing
   await salePanel(page, "Details");
   await page
     .getByLabel("Sales product category", { exact: true })
+    .first()
     .selectOption("parts");
   await page
     .getByLabel("Sales product", { exact: true })
+    .first()
     .selectOption("part-one");
-  await page.getByLabel("Sales quantity", { exact: true }).fill("2");
+  await page.getByLabel("Sales quantity", { exact: true }).first().fill("2");
   await page
     .getByRole("button", { name: "Add Another Product", exact: true })
     .click();
@@ -439,6 +466,7 @@ test("sale entry and long carts fit short viewports without vertical scrolling",
     await assertFits();
     await page
       .getByLabel("Sales product category", { exact: true })
+      .first()
       .selectOption("parts");
     for (const id of [
       "part-one",
@@ -447,8 +475,14 @@ test("sale entry and long carts fit short viewports without vertical scrolling",
       "extra-part-2",
       "extra-part-3",
     ]) {
-      await page.getByLabel("Sales product", { exact: true }).selectOption(id);
-      await page.getByLabel("Sales quantity", { exact: true }).fill("1");
+      await page
+        .getByLabel("Sales product", { exact: true })
+        .first()
+        .selectOption(id);
+      await page
+        .getByLabel("Sales quantity", { exact: true })
+        .first()
+        .fill("1");
       await page
         .getByRole("button", { name: "Add Another Product", exact: true })
         .click();
@@ -518,12 +552,17 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
     .selectOption("existing-customer");
   await page
     .getByLabel("Sales product category", { exact: true })
+    .first()
     .selectOption("parts");
   await page
     .getByLabel("Sales product", { exact: true })
+    .first()
     .selectOption("part-one");
-  await page.getByLabel("Sales quantity", { exact: true }).fill("3");
-  await page.getByLabel("Unit sale price", { exact: true }).fill("125.50");
+  await page.getByLabel("Sales quantity", { exact: true }).first().fill("3");
+  await page
+    .getByLabel("Unit sale price", { exact: true })
+    .first()
+    .fill("125.50");
   await expect(
     page.getByLabel("Sales paid amount", { exact: true }),
   ).toHaveCount(0);
@@ -533,7 +572,7 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
   await expect(
     page.getByLabel("Sales payment method", { exact: true }),
   ).toHaveCount(0);
-  await expect(page.locator(".sales-cart-panel tbody tr")).toHaveCount(0);
+  await expect(page.locator(".sales-cart-panel tbody tr")).toHaveCount(1);
   const confirm = page.getByRole("button", {
     name: "Confirm Sale",
     exact: true,
@@ -562,9 +601,9 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "temporarily unavailable",
   );
-  await expect(page.getByLabel("Sales quantity", { exact: true })).toHaveValue(
-    "3",
-  );
+  await expect(
+    page.getByLabel("Sales quantity", { exact: true }).first(),
+  ).toHaveValue("3");
   await confirm.click();
   await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
   await expect(page.locator(".sales-success a")).toHaveCount(0);
@@ -593,7 +632,7 @@ test("Confirm Sale saves the selected product directly and updates the dashboard
   const row = page.locator("tr").filter({ hasText: "SALE-E2E-001" });
   await expect(row).toContainText("Existing Customer");
   await expect(row).toContainText("376.50");
-  await expect(row).toContainText("CONFIRMED");
+  await expect(row).not.toContainText("CONFIRMED");
   expect(fixture.unhandled).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
@@ -688,11 +727,15 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await expect(customer).toHaveValue("created-customer");
   expect(await shellGeometry(page)).toEqual(originalShell);
 
-  const category = page.getByLabel("Sales product category", { exact: true });
-  const product = page.getByLabel("Sales product", { exact: true });
-  const quantity = page.getByLabel("Sales quantity", { exact: true });
-  const price = page.getByLabel("Unit sale price", { exact: true });
-  const lineTotal = page.getByLabel("Sales line total", { exact: true });
+  const category = page
+    .getByLabel("Sales product category", { exact: true })
+    .first();
+  const product = page.getByLabel("Sales product", { exact: true }).first();
+  const quantity = page.getByLabel("Sales quantity", { exact: true }).first();
+  const price = page.getByLabel("Unit sale price", { exact: true }).first();
+  const lineTotal = page
+    .getByLabel("Sales line total", { exact: true })
+    .first();
   const add = page.getByRole("button", {
     name: "Add Another Product",
     exact: true,
@@ -717,7 +760,7 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     .toBe(376.5);
   await add.click();
   await salePanel(page, "Items");
-  await expect(itemRow("Sale Test Auto Part")).toBeVisible();
+  await expectCartProduct(page, "Sale Test Auto Part");
   await page
     .getByRole("button", { name: "Remove Sale Test Auto Part", exact: true })
     .click();
@@ -730,7 +773,7 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await add.click();
   await category.selectOption("empty-type");
   await expect(product).toBeDisabled();
-  await expect(add).toBeDisabled();
+  await expect(add).toBeEnabled();
   await category.selectOption("batteries");
   await expect(product.locator('option[value="part-one"]')).toHaveCount(0);
   await expect(product.locator('option[value="battery-one"]')).toHaveCount(1);
@@ -742,7 +785,7 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   ).toHaveCount(0);
   await add.click();
   await salePanel(page, "Items");
-  await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await expectCartProduct(page, "Sale Test Battery");
   await salePanel(page, "Payment");
   const summary = (label: string) =>
     page
@@ -781,8 +824,8 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   expect(fixture.submittedSales).toHaveLength(1);
   await expect(customer).toHaveValue("created-customer");
   await salePanel(page, "Items");
-  await expect(itemRow("Sale Test Auto Part")).toBeVisible();
-  await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await expectCartProduct(page, "Sale Test Auto Part");
+  await expectCartProduct(page, "Sale Test Battery");
   await complete.click();
   await expect(page.locator(".sales-success")).toHaveText("বিক্রয় সফল হয়েছে");
   await expect(
@@ -791,8 +834,8 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await page
     .getByRole("button", { name: "Sale Items (2)", exact: true })
     .click();
-  await expect(itemRow("Sale Test Auto Part")).toBeVisible();
-  await expect(itemRow("Sale Test Battery")).toBeVisible();
+  await expectCartProduct(page, "Sale Test Auto Part");
+  await expectCartProduct(page, "Sale Test Battery");
   await salePanel(page, "Payment");
   await expect(summary("Subtotal")).toContainText("3,376.50");
   await expect(paid).toHaveValue("1000.00");
@@ -830,7 +873,7 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await category.selectOption("parts");
   await product.selectOption("part-one");
   await quantity.fill("1");
-  await expect(itemRow("Sale Test Auto Part")).toHaveCount(0);
+  await expect(itemRow("Sale Test Auto Part")).toHaveCount(mobile ? 0 : 1);
   await expect(itemRow("Sale Test Battery")).toHaveCount(0);
   await expect(page.locator(".sales-success")).toHaveCount(0);
   await salePanel(page, "Payment");
@@ -841,5 +884,88 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   expect(await shellGeometry(page)).toEqual(originalShell);
   await expectNoHorizontalOverflow(page);
   expect(fixture.unhandled).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test("multiple product-entry rows can be added, edited and removed before confirming one sale", async ({
+  page,
+}) => {
+  const fixture = await mockSalesWorkspace(page);
+  await page.goto("/sales/new");
+  await page
+    .getByLabel("Select customer", { exact: true })
+    .selectOption("existing-customer");
+  const add = page.getByRole("button", {
+    name: "Add Another Product",
+    exact: true,
+  });
+  const entry = (number: number) =>
+    page.getByRole("group", { name: "Product " + number, exact: true });
+  await expect(add).toBeEnabled();
+  await add.click();
+  await add.click();
+  await expect(page.locator(".sales-product-entry")).toHaveCount(3);
+  await page
+    .getByRole("button", { name: "Remove product 3", exact: true })
+    .click();
+  await expect(page.locator(".sales-product-entry")).toHaveCount(2);
+  await entry(1)
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await entry(1)
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  await entry(1).getByLabel("Sales quantity", { exact: true }).fill("2");
+  await entry(1).getByLabel("Unit sale price", { exact: true }).fill("110.25");
+  await entry(2)
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await entry(2)
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  await entry(2).getByLabel("Sales quantity", { exact: true }).fill("1");
+  await page.getByRole("button", { name: "Confirm Sale", exact: true }).click();
+  await expect(page.locator(".sales-error")).toContainText("already added");
+  expect(fixture.submittedSales).toHaveLength(0);
+  await entry(2)
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("batteries");
+  await entry(2)
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("battery-one");
+  await entry(2).getByLabel("Sales quantity", { exact: true }).fill("1");
+  await page
+    .getByRole("button", { name: "Remove product 1", exact: true })
+    .click();
+  await expect(
+    entry(1).getByLabel("Sales product", { exact: true }),
+  ).toHaveValue("battery-one");
+  await expect(
+    entry(1).getByLabel("Sales quantity", { exact: true }),
+  ).toHaveValue("1");
+  await add.click();
+  await entry(2)
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await entry(2)
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  await entry(2).getByLabel("Sales quantity", { exact: true }).fill("2");
+  await entry(2).getByLabel("Unit sale price", { exact: true }).fill("110.25");
+  await salePanel(page, "Payment");
+  await expect(page.locator(".erp-summary-total")).toContainText("1,720.50");
+  await page.getByRole("button", { name: "Confirm Sale", exact: true }).click();
+  await expect(page.locator(".sales-error")).toContainText(
+    "temporarily unavailable",
+  );
+  await page.getByRole("button", { name: "Confirm Sale", exact: true }).click();
+  await expect(page.locator(".sales-success")).toBeVisible();
+  expect(fixture.submittedSales).toHaveLength(2);
+  expect(fixture.submittedSales[1].body.items).toEqual([
+    { productId: "battery-one", quantity: 1, unitPrice: "1500.00" },
+    { productId: "part-one", quantity: 2, unitPrice: "110.25" },
+  ]);
+  expect(fixture.submittedSales[1].body.paidAmount).toBe("1720.50");
+  expect(fixture.submittedSales[1].key).toBe(fixture.submittedSales[0].key);
   expect(fixture.errors).toEqual([]);
 });

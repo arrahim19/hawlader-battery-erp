@@ -302,7 +302,7 @@ export function PurchasesView({
       setError("Enter a valid paid amount within the purchase total.");
       return;
     }
-    if (!/^\d{1,14}(?:\.\d{1,2})?$/.test(transportAmount || "0")) {
+    if (!/^\d{1,14}(?:\.\d{1,2})?$/.test(canPay ? transportAmount : "0")) {
       setError("Enter a valid transport amount.");
       return;
     }
@@ -759,9 +759,14 @@ export function PurchasesView({
                           onChange={(event) => setModel(event.target.value)}
                         />
                       </Field>
-                      <Field label="Qty" className="purchase-quantity-field">
+                      <Field
+                        label="Qty"
+                        required
+                        className="purchase-quantity-field"
+                      >
                         <input
                           aria-label="Purchase quantity"
+                          required={Boolean(productName) || !cart.length}
                           type="number"
                           min="1"
                           max={individual ? 500 : 10000}
@@ -775,10 +780,12 @@ export function PurchasesView({
                       </Field>
                       <Field
                         label="Unit Purchase Price (৳)"
+                        required
                         className="purchase-price-field"
                       >
                         <input
                           aria-label="Unit purchase price"
+                          required={Boolean(productName) || !cart.length}
                           type="number"
                           min="0"
                           step="0.01"
@@ -809,9 +816,10 @@ export function PurchasesView({
                           }
                         />
                       </Field>
-                      <Field label="Transport (৳)">
+                      <Field label="Transport (৳)" required={canPay}>
                         <input
                           aria-label="Purchase transport amount"
+                          required={canPay}
                           type="number"
                           min="0"
                           max="99999999999999.99"

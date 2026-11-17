@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
-import { X } from "lucide-react";
+import { Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/reference-ui";
 import { businessDate, money } from "@/lib/utils";
@@ -177,11 +177,13 @@ export function PurchaseDetailsButton({
       <Dialog.Trigger asChild>
         <Button
           type="button"
-          size="sm"
+          size="icon"
           variant="outline"
           className="purchase-details-button"
+          aria-label="Details"
+          title={`Details — ${purchase.supplier.name}`}
         >
-          Details
+          <Eye />
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>

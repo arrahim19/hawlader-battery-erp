@@ -474,86 +474,88 @@ export function SupplierView({
           </Panel>
           <div className="supplier-list-layout">
             <Panel>
-              {loading ? (
-                <p
-                  role="status"
-                  className="p-8 text-center text-sm text-slate-500"
-                >
-                  Loading suppliers...
-                </p>
-              ) : list?.items.length ? (
-                <div className="erp-table-wrap">
-                  <table className="erp-table">
-                    <caption className="sr-only">Suppliers</caption>
-                    <thead>
-                      <tr>
-                        {columns.map((column) => (
-                          <th key={column} scope="col">
-                            {column}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {list.items.map((supplier, index) => (
-                        <tr key={supplier.id}>
-                          <td>{(page - 1) * 10 + index + 1}</td>
-                          <td>
-                            {supplier.productType?.name || "ক্যাটাগরি সেট করুন"}
-                          </td>
-                          <td>
-                            <span className="font-semibold text-green-800">
-                              {supplier.name}
-                            </span>
-                          </td>
-                          <td>{supplier.company || "—"}</td>
-                          <td>{supplier.phone || "—"}</td>
-                          <td className="max-w-64 break-words whitespace-normal">
-                            {supplier.address || "—"}
-                          </td>
-                          <td>
-                            <div className="flex gap-1">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Edit ${supplier.name}`}
-                                disabled={preview}
-                                onClick={() => setEditing(supplier)}
-                              >
-                                <Pencil />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-600"
-                                aria-label={`Delete ${supplier.name}`}
-                                disabled={preview}
-                                onClick={() => {
-                                  setDeleteError("");
-                                  setDeleting(supplier);
-                                }}
-                              >
-                                <Trash2 />
-                              </Button>
-                            </div>
-                          </td>
+              <div className="supplier-table-body">
+                {loading ? (
+                  <p
+                    role="status"
+                    className="p-8 text-center text-sm text-slate-500"
+                  >
+                    Loading suppliers...
+                  </p>
+                ) : list?.items.length ? (
+                  <div className="erp-table-wrap">
+                    <table className="erp-table">
+                      <caption className="sr-only">Suppliers</caption>
+                      <thead>
+                        <tr>
+                          {columns.map((column) => (
+                            <th key={column} scope="col">
+                              {column}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <EmptyTable
-                  columns={columns}
-                  description={
-                    query
-                      ? "খোঁজার সঙ্গে মেলে এমন সাপ্লায়ার নেই।"
-                      : "নতুন সাপ্লায়ার যোগ করলে এখানে দেখা যাবে।"
-                  }
-                />
-              )}
+                      </thead>
+                      <tbody>
+                        {list.items.map((supplier, index) => (
+                          <tr key={supplier.id}>
+                            <td>{(page - 1) * 10 + index + 1}</td>
+                            <td>
+                              {supplier.productType?.name || "ক্যাটাগরি সেট করুন"}
+                            </td>
+                            <td>
+                              <span className="font-semibold text-green-800">
+                                {supplier.name}
+                              </span>
+                            </td>
+                            <td>{supplier.company || "—"}</td>
+                            <td>{supplier.phone || "—"}</td>
+                            <td className="max-w-64 break-words whitespace-normal">
+                              {supplier.address || "—"}
+                            </td>
+                            <td>
+                              <div className="flex gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Edit ${supplier.name}`}
+                                  disabled={preview}
+                                  onClick={() => setEditing(supplier)}
+                                >
+                                  <Pencil />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-600"
+                                  aria-label={`Delete ${supplier.name}`}
+                                  disabled={preview}
+                                  onClick={() => {
+                                    setDeleteError("");
+                                    setDeleting(supplier);
+                                  }}
+                                >
+                                  <Trash2 />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyTable
+                    columns={columns}
+                    description={
+                      query
+                        ? "খোঁজার সঙ্গে মেলে এমন সাপ্লায়ার নেই।"
+                        : "নতুন সাপ্লায়ার যোগ করলে এখানে দেখা যাবে।"
+                    }
+                  />
+                )}
+              </div>
               <div className="erp-pager">
                 <span>
                   {list?.total ?? 0} suppliers · Page {page} of {pages}

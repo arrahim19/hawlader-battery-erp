@@ -16,8 +16,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="bn">
-      {/* Browser extensions such as Grammarly add attributes before hydration. */}
+    // Extensions can add attributes to both document roots before React loads.
+    <html lang="bn" suppressHydrationWarning>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );

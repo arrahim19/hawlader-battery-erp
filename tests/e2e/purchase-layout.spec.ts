@@ -158,6 +158,15 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
       await expect(page.getByLabel("Purchase product capacity")).toHaveCount(0);
     await expect(page.getByLabel("Purchase product unit")).toHaveCount(0);
     const warranty = page.getByLabel("Purchase product warranty");
+    for (const label of [
+      "Purchase quantity",
+      "Unit purchase price",
+      "Purchase transport amount",
+    ])
+      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute(
+        "required",
+        "",
+      );
     await page.getByLabel("Purchase transport amount").fill("250.50");
     await warranty.fill("06");
     await expect(warranty).toHaveValue("6");

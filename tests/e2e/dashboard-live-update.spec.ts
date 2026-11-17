@@ -65,7 +65,7 @@ for (const path of ["/dashboard", "/accounts"]) {
     const cards = page.locator(".erp-stats .erp-stat");
     const sales = cards.first().locator(".erp-stat-value");
     await expect.poll(() => Boolean(pending)).toBe(true);
-    await expect(cards).toHaveCount(path === "/dashboard" ? 4 : 5);
+    await expect(cards).toHaveCount(4);
     await expect(cards.first().locator(".erp-stat-icon svg")).toBeVisible();
     await expect(cards.first().locator(".erp-stat-label")).toBeVisible();
     await expect(sales).toHaveText("—");

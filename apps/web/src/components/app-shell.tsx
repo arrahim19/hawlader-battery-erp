@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog, DropdownMenu } from "radix-ui";
 import {
   ArrowLeftRight,
@@ -124,7 +124,6 @@ export function AppShell({
   children,
   preview = false,
   previewModule = "dashboard",
-  previewView = "",
 }: {
   children: ReactNode;
   preview?: boolean;
@@ -135,6 +134,13 @@ export function AppShell({
   const router = useRouter();
   const user = useSession();
   const current = preview ? previewModule : pathname.split("/")[1];
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      if (contentRef.current) contentRef.current.scrollTop = 0;
+      window.scrollTo(0, 0);
+    }
+  }, [pathname, previewModule]);
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [logoutError, setLogoutError] = useState("");
@@ -240,11 +246,7 @@ export function AppShell({
         current === "dashboard" && "dashboard-shell",
         current === "purchases" && "purchase-shell",
         current === "accounts" && "accounts-shell",
-        current === "sales" &&
-          ["", "new"].includes(
-            preview ? previewView : (pathname.split("/")[2] ?? ""),
-          ) &&
-          "sales-entry-shell",
+        current === "sales" && "sales-shell",
         ["inventory", "products"].includes(current) && "inventory-shell",
         collapsed && "sidebar-collapsed",
       )}
@@ -395,15 +397,9 @@ export function AppShell({
           </div>
         ) : null}
         <main id="main-content" className="main-content">
-          {children}
-          <footer className="page-footer">
-            <span>© {new Date().getFullYear()} Howlader Battery House</span>
-            <span>
-              <span className="status-dot" />
-              {preview ? "Design preview" : "Local workspace"} · Asia/Dhaka ·
-              BDT
-            </span>
-          </footer>
+          <div className="workspace-content" ref={contentRef}>
+            {children}
+          </div>
         </main>
       </div>
     </div>

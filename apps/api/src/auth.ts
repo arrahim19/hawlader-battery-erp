@@ -309,7 +309,7 @@ export class AccessGuard implements CanActivate {
       context.getClass(),
     ]);
     const unsafe = !["GET", "HEAD", "OPTIONS"].includes(req.method);
-    if (unsafe && req.get("Origin") !== settings().origin)
+    if (unsafe && !settings().allowedOrigins.includes(req.get("Origin") ?? ""))
       throw new ForbiddenException("Request origin not allowed.");
     if (!publicRoute && !(await this.auth.session(req)))
       throw new UnauthorizedException("Please sign in.");

@@ -10,6 +10,7 @@ import {
   CalendarDays,
   CheckCheck,
   Clock3,
+  Eye,
   Package,
   Plus,
   ShoppingCart,
@@ -172,11 +173,11 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
               </Link>
             </Button>
           ) : null}
-          {has("replacements.intake.customer") ? (
+          {has("finance.read") ? (
             <Button asChild variant="outline" className="erp-button">
-              <Link href={workspaceHref("replacements", "new", preview)}>
-                <ArrowLeftRight />
-                Add Replacement
+              <Link href={workspaceHref("accounts", undefined, preview)}>
+                <Wallet />
+                Accounts
               </Link>
             </Button>
           ) : null}
@@ -302,7 +303,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                       <td>
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon"
                           variant="outline"
                           disabled={
                             preview ||
@@ -315,7 +316,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                             setDetails(sale);
                           }}
                         >
-                          Details
+                          <Eye />
                         </Button>
                       </td>
                     </tr>
@@ -327,13 +328,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
             <EmptyTable
               title="No invoices yet"
               description="নিশ্চিত বিক্রয়ের পর ইনভয়েস ও পরিশোধের তথ্য এখানে দেখা যাবে।"
-              columns={[
-                "ইনভয়েস",
-                "তারিখ",
-                "কাস্টমার",
-                "মোট টাকা",
-                "Details",
-              ]}
+              columns={["ইনভয়েস", "তারিখ", "কাস্টমার", "মোট টাকা", "Details"]}
             />
           )}
         </Panel>
@@ -440,19 +435,6 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
           returnFocus={() => detailsButton.current?.focus()}
         />
       ) : null}
-      <div className="dashboard-meta flex flex-wrap justify-between gap-2 text-[10px] text-slate-400">
-        <span>
-          Cash received:{" "}
-          {finance
-            ? taka(data?.financials?.todayCashReceived)
-            : "শুধু অনুমোদিত ব্যবহারকারীর জন্য"}
-        </span>
-        <span>
-          {preview
-            ? "UI preview · no business data"
-            : "লাইভ ডেটাবেস · কোনো নমুনা রেকর্ড নয়"}
-        </span>
-      </div>
     </div>
   );
 }

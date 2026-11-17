@@ -11,7 +11,6 @@ export const childNavigation: Record<
     { label: "Sales List", view: "list" },
     { label: "Returns (Sales Return)", view: "returns" },
     { label: "Due Collections", view: "collections" },
-    { label: "Sales Report", view: "reports" },
   ],
   replacements: [
     { label: "Replacement List", view: "list" },
@@ -23,8 +22,6 @@ export const childNavigation: Record<
   customers: [
     { label: "Customer List", view: "list" },
     { label: "Add Customer", view: "new" },
-    { label: "Customer Groups", view: "groups" },
-    { label: "Credit Customers", view: "credit" },
     { label: "Customer Ledger", view: "ledger" },
   ],
   suppliers: [

@@ -28,7 +28,13 @@ export default async function WorkspacePage({
   if (moduleId === "inventory" && segments[1]) redirect("/inventory");
   if (!Object.hasOwn(modules, moduleId)) notFound();
   return (
-    <Suspense fallback={<p role="status">Loading workspace...</p>}>
+    <Suspense
+      fallback={
+        <p className="workspace-route-loading" role="status">
+          Loading workspace...
+        </p>
+      }
+    >
       <WorkspaceQuery
         moduleId={moduleId}
         subpage={segments.slice(1).join("/")}
