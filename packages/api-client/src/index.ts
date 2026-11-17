@@ -341,6 +341,10 @@ export interface DashboardData {
     invoiceNumber: string | null;
     soldAt: string | null;
     customer: string;
+    customerId?: string;
+    customerPhone?: string;
+    paid?: string;
+    due?: string;
     total: string;
     status: string;
   }[];

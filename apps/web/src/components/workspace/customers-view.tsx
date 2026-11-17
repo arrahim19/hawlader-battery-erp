@@ -292,7 +292,7 @@ export function CustomersView({
                             }}
                           >
                             <Eye />
-                            View Details
+                            Details
                           </Button>
                         </td>
                       </tr>

@@ -181,7 +181,7 @@ export function PurchaseDetailsButton({
           variant="outline"
           className="purchase-details-button"
         >
-          View Details
+          Details
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>

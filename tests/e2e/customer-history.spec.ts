@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("View Details organizes the selected customer's sales by dated invoice and supports paging, retry and empty history", async ({
+test("Details organizes the selected customer's sales by dated invoice and supports paging, retry and empty history", async ({
   page,
 }) => {
   const customers = [
@@ -126,7 +126,7 @@ test("View Details organizes the selected customer's sales by dated invoice and 
   const first = page
     .getByRole("row")
     .filter({ hasText: "Customer One" })
-    .getByRole("button", { name: "View Details", exact: true });
+    .getByRole("button", { name: "Details", exact: true });
   await first.click();
   const dialog = page.getByRole("dialog");
   await expect(
@@ -177,7 +177,7 @@ test("View Details organizes the selected customer's sales by dated invoice and 
   await page
     .getByRole("row")
     .filter({ hasText: "Customer Two" })
-    .getByRole("button", { name: "View Details", exact: true })
+    .getByRole("button", { name: "Details", exact: true })
     .click();
   await expect(
     dialog.getByRole("heading", { name: "Customer Details — Customer Two" }),

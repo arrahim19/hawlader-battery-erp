@@ -26,7 +26,7 @@ export function CustomerSalesHistoryDialog({
 }: {
   customer: Pick<CustomerRecord, "id" | "name" | "phone"> &
     Partial<CustomerRecord>;
-  sale?: SalesList["items"][number];
+  sale?: Pick<SalesList["items"][number], "id" | "total" | "paid" | "due">;
   preview: boolean;
   onClose: () => void;
   returnFocus: () => void;

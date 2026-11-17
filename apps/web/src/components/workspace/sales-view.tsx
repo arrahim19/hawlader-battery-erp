@@ -140,7 +140,7 @@ function RecentSales({
                         setDetails(sale);
                       }}
                     >
-                      View Details
+                      Details
                     </Button>
                   </td>
                   <td>

@@ -103,7 +103,15 @@ export class DashboardService {
           soldAt: true,
           total: true,
           status: true,
-          customer: { select: { name: true } },
+          customer: { select: { id: true, name: true, phone: true } },
+          paymentAllocations: {
+            where: {
+              reversedAllocationId: null,
+              reversal: { is: null },
+              payment: { reversedPaymentId: null, reversal: { is: null } },
+            },
+            select: { amount: true },
+          },
         },
         orderBy: { soldAt: "desc" },
         take: 5,
@@ -150,12 +158,22 @@ export class DashboardService {
         lowStock: lowStock.length,
       },
       lowStock: lowStock.slice(0, 5),
-      recentSales: recent.map((sale) => ({
-        ...sale,
-        customer: sale.customer.name,
-        total: sale.total.toFixed(2),
-        soldAt: sale.soldAt?.toISOString() ?? null,
-      })),
+      recentSales: recent.map(({ paymentAllocations, ...sale }) => {
+        const paid = paymentAllocations.reduce(
+          (sum, allocation) => sum.add(allocation.amount),
+          new Prisma.Decimal(0),
+        );
+        return {
+          ...sale,
+          customer: sale.customer.name,
+          customerId: sale.customer.id,
+          customerPhone: sale.customer.phone,
+          total: sale.total.toFixed(2),
+          paid: paid.toFixed(2),
+          due: sale.total.sub(paid).toFixed(2),
+          soldAt: sale.soldAt?.toISOString() ?? null,
+        };
+      }),
       salesTrend: [],
       stock: {
         batteriesAvailable: batteries,
