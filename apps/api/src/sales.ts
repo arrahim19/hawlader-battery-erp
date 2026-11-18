@@ -47,7 +47,7 @@ const trim = ({ value }: { value: unknown }) =>
 class CompleteSaleItemDto {
   @IsUUID() productId!: string;
   @IsInt() @Min(1) @Max(10000) quantity!: number;
-  @Matches(/^\d{1,14}(?:\.\d{1,2})?$/) unitPrice!: string;
+  @Matches(/^(?=.*[1-9])\d{1,14}(?:\.\d{1,2})?$/) unitPrice!: string;
 }
 class CompleteSaleDto {
   @IsUUID() customerId!: string;

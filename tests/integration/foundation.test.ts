@@ -2364,6 +2364,18 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
   assert.equal(await db.sale.count(), saleCount);
   assert.equal((await stock())._sum.quantity?.toString(), "2");
   assert.equal((await complete({ ...body, paidAmount: "999.00" })).status, 400);
+  for (const unitPrice of [undefined, "", "0", "0.00", "-1.00"]) {
+    assert.equal(
+      (
+        await complete({
+          ...body,
+          items: [{ productId: part.id, quantity: 1, unitPrice }],
+        })
+      ).status,
+      400,
+    );
+  }
+  assert.equal(await db.sale.count(), saleCount);
   assert.equal(
     (await complete({ ...body, saleDate: "2025-02-30" })).status,
     400,
@@ -3165,7 +3177,7 @@ test("receiving batteries without serial numbers creates stock and replays safel
     .send({
       customerId: customer.id,
       saleDate: "2026-11-15",
-      items: [{ productId, quantity: 3, unitPrice: "0.00" }],
+      items: [{ productId, quantity: 3, unitPrice: "1.00" }],
     });
   assert.equal(sale.status, 201, JSON.stringify(sale.body));
   assert.equal(

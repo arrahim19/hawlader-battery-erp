@@ -66,6 +66,8 @@ type SaleLine = {
   model: string;
 };
 const validPrice = (value: string) => /^\d{1,14}(?:\.\d{1,2})?$/.test(value);
+const validUnitPrice = (value: string) =>
+  validPrice(value) && cents(value) > BigInt(0);
 
 function RecentSales({
   data,
@@ -298,7 +300,7 @@ export function SalesView({
       !Number.isSafeInteger(quantity) ||
       quantity < 1 ||
       quantity > 10000 ||
-      !validPrice(entry.unitPrice)
+      !validUnitPrice(entry.unitPrice)
     )
       return [];
     return [
@@ -429,12 +431,6 @@ export function SalesView({
     const items = cart;
     const selected = new Set<string>();
     for (const [index, entry] of entries.entries()) {
-      if (
-        !entry.productId &&
-        !entry.unitPrice &&
-        (!entry.quantity || entry.quantity === "0")
-      )
-        continue;
       const product = options.data?.products.find(
         (product) =>
           product.id === entry.productId && product.type.id === entry.typeId,
@@ -447,7 +443,7 @@ export function SalesView({
         !Number.isSafeInteger(quantity) ||
         quantity < 1 ||
         quantity > 10000 ||
-        !validPrice(entry.unitPrice)
+        !validUnitPrice(entry.unitPrice)
       ) {
         setError(
           "Product " +

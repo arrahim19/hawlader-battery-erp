@@ -60,9 +60,10 @@ export function SaleProductEntry({
         </div>
       ) : null}
       <div className="sales-product-fields">
-        <Field label="Product Category" className="sales-type-field">
+        <Field label="Product Category" className="sales-type-field" required>
           <select
             aria-label="Sales product category"
+            required
             value={entry.typeId}
             disabled={!options?.types.length}
             onChange={(event) =>
@@ -82,9 +83,10 @@ export function SaleProductEntry({
             ))}
           </select>
         </Field>
-        <Field label="Product" className="sales-product-field">
+        <Field label="Product" className="sales-product-field" required>
           <select
             aria-label="Sales product"
+            required
             value={entry.productId}
             disabled={!entry.typeId || !products.length}
             onChange={(event) => {
@@ -116,11 +118,12 @@ export function SaleProductEntry({
             ))}
           </select>
         </Field>
-        <Field label="Qty" className="sales-qty-field">
+        <Field label="Qty" className="sales-qty-field" required>
           <input
             aria-label="Sales quantity"
             type="number"
-            min="0"
+            min="1"
+            required
             max="10000"
             step="1"
             value={entry.quantity}
@@ -138,11 +141,12 @@ export function SaleProductEntry({
             }
           />
         </Field>
-        <Field label="Unit Price (৳)" className="sales-price-field">
+        <Field label="Unit Price (৳)" className="sales-price-field" required>
           <input
             aria-label="Unit sale price"
             type="number"
-            min="0"
+            min="0.01"
+            required
             step="0.01"
             placeholder="0.00"
             value={entry.unitPrice}

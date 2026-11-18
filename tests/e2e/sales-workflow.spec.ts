@@ -331,6 +331,68 @@ async function expectCartProduct(page: Page, name: string) {
   throw new Error("Missing cart product: " + name);
 }
 
+test("every sale row requires category, product, positive quantity and price", async ({
+  page,
+}) => {
+  const fixture = await mockSalesWorkspace(page);
+  await page.goto("/sales");
+  await salePanel(page, "Details");
+  await page
+    .getByLabel("Select customer", { exact: true })
+    .selectOption("existing-customer");
+  const row = page.getByRole("group", { name: "Product 1", exact: true });
+  for (const name of [
+    "Sales product category",
+    "Sales product",
+    "Sales quantity",
+    "Unit sale price",
+  ]) {
+    await expect(row.getByLabel(name, { exact: true })).toHaveAttribute(
+      "required",
+      "",
+    );
+  }
+  await row
+    .getByLabel("Sales product category", { exact: true })
+    .selectOption("parts");
+  await row
+    .getByLabel("Sales product", { exact: true })
+    .selectOption("part-one");
+  const quantity = row.getByLabel("Sales quantity", { exact: true });
+  const price = row.getByLabel("Unit sale price", { exact: true });
+  await quantity.fill("0");
+  await price.fill("0");
+  expect(
+    await quantity.evaluate((node: HTMLInputElement) => node.checkValidity()),
+  ).toBe(false);
+  expect(
+    await price.evaluate((node: HTMLInputElement) => node.checkValidity()),
+  ).toBe(false);
+  await quantity.fill("1");
+  await price.fill("100.00");
+  expect(
+    await page
+      .locator(".sales-form")
+      .evaluate((form: HTMLFormElement) => form.checkValidity()),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Add Another Product", exact: true })
+    .click();
+  await salePanel(page, "Payment");
+  await page.getByRole("button", { name: "Confirm Sale", exact: true }).click();
+  expect(fixture.submittedSales).toHaveLength(0);
+  await salePanel(page, "Details");
+  await page
+    .getByRole("button", { name: "Remove product 2", exact: true })
+    .click();
+  expect(
+    await page
+      .locator(".sales-form")
+      .evaluate((form: HTMLFormElement) => form.checkValidity()),
+  ).toBe(true);
+  expect(fixture.errors).toEqual([]);
+});
+
 test("saved sales appear on entry, survive reload, and paginate without changing the draft", async ({
   page,
 }, info) => {
@@ -780,6 +842,10 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
     page.getByRole("button", { name: "Select Battery Units", exact: true }),
   ).toHaveCount(0);
   await add.click();
+  // Every added row is required; remove the unused third row before posting.
+  await page
+    .getByRole("button", { name: "Remove product 3", exact: true })
+    .click();
   await salePanel(page, "Items");
   await expectCartProduct(page, "Sale Test Battery");
   await salePanel(page, "Payment");
