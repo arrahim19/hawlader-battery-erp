@@ -41,10 +41,9 @@ export const modules: Record<
   },
   customers: {
     title: "Customers",
-    description:
-      "Customer contacts, vehicles, battery sets, and account history.",
+    description: "Customer contacts, sales, and account history.",
     phase: 4,
-    columns: ["Customer", "Phone", "Vehicle", "Status"],
+    columns: ["Customer", "Phone", "Address", "Status"],
   },
   suppliers: {
     title: "Suppliers",

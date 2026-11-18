@@ -362,6 +362,8 @@ model Customer {
   @@index([phone])
 }
 
+// Empty compatibility table for older deployed readers. The
+// vehicle_recording_disabled database constraint prevents storing new records.
 model Vehicle {
   id          String       @id @default(uuid()) @db.Uuid
   createdAt   DateTime     @default(now()) @db.Timestamptz(3)

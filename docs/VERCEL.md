@@ -6,6 +6,9 @@ API with their original path, including `/api/v1`; all other paths reach the
 frontend. Both use the same public domain for session cookies and CSRF checks.
 The API uses Vercel's NestJS runtime, not a container.
 The root address redirects to `/dashboard` at the deployment level.
+Functions run in Singapore (`sin1`), matching the Neon database region, to avoid
+cross-continent latency on each query. This setting takes effect on deployment;
+static frontend assets continue to use Vercel's global CDN.
 
 ## Import from GitHub
 
@@ -15,7 +18,7 @@ The root address redirects to `/dashboard` at the deployment level.
 3. Confirm that only `api` and `web` are listed. If the import still lists the
    deleted container service, leave the import page and start a fresh import
    from the repository after the latest commit is available.
-4. Use Node.js **24.x**. Build and install commands are supplied by `vercel.json`;
+4. Use Node.js **26.x LTS**. The root and both service manifests pin `engines.node` to `26.x`, overriding an older dashboard selection on the next deployment. Build and install commands are supplied by `vercel.json`;
    leave dashboard command overrides unset.
 5. Add the environment variables below before deploying.
 

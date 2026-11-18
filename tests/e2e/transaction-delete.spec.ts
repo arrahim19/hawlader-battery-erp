@@ -65,7 +65,7 @@ for (const [kind, view] of [
                   phone: "01700000000",
                   address: "Dhaka",
                   active: true,
-                  vehicles: [],
+
                   due: "0.00",
                   totalSales: "0.00",
                 },

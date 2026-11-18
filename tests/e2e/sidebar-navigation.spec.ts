@@ -94,6 +94,21 @@ async function mockWorkspace(page: Page) {
           data: { types: [], brands: [], categories: [], totalProducts: 0 },
         },
       });
+    if (path === "/purchases/recent")
+      return route.fulfill({ json: { data: { items: [] } } });
+    if (path === "/expenses" || path === "/replacements")
+      return route.fulfill({
+        json: {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            pageSize: 20,
+            summary:
+              path === "/expenses" ? { total: "0.00", byCategory: [] } : {},
+          },
+        },
+      });
     unhandled.push(path);
     return route.abort();
   });
@@ -261,8 +276,12 @@ test("sidebar and top bar keep their geometry throughout desktop navigation", as
   await expect(page).toHaveURL("/inventory");
   await expect.poll(() => fixture.blocked).toBe(true);
   await expect(
-    page.getByLabel("Loading module", { exact: true }),
+    page.getByRole("complementary", { name: "Product filters" }),
   ).toBeVisible();
+  await expect(page.getByLabel("Search products")).toBeVisible();
+  await expect(page.getByLabel("Loading module", { exact: true })).toHaveCount(
+    0,
+  );
   expect(await geometry(page, ".desktop-sidebar")).toEqual(original);
   fixture.releaseModule();
   await expect(page.getByLabel("Loading module", { exact: true })).toHaveCount(

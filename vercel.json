@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["sin1"],
   "env": {
     "NODE_OPTIONS": "--experimental-require-module"
   },
@@ -10,6 +11,7 @@
       "entrypoint": "src/main.ts",
       "functions": {
         "src/main.ts": {
+          "regions": ["sin1"],
           "includeFiles": "node_modules/{argon2,node-gyp-build,@phc/format}/**"
         }
       },

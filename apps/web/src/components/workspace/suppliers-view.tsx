@@ -39,6 +39,7 @@ import {
 } from "@/lib/api";
 import { money } from "@/lib/utils";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
+import { useSession } from "@/components/session-provider";
 
 const supplierSchema = z.object({
   productTypeId: z.string().uuid("Product Category নির্বাচন করুন।"),
@@ -308,6 +309,7 @@ export function SupplierView({
   view?: string;
   data: DashboardData | null;
 }) {
+  const user = useSession();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -348,7 +350,7 @@ export function SupplierView({
   } | null>(null);
   const key = JSON.stringify([query, status, page, revision]);
   useEffect(() => {
-    if (preview) return;
+    if (preview || !user) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
       q: query,
@@ -371,7 +373,7 @@ export function SupplierView({
           });
       });
     return () => controller.abort();
-  }, [preview, query, status, page, key]);
+  }, [preview, query, status, page, key, user]);
   const list = result?.key === key ? result.data : null;
   const error = failure?.key === key ? failure.message : "";
   const loading = !preview && !list && !error;
@@ -475,15 +477,8 @@ export function SupplierView({
           <div className="supplier-list-layout">
             <Panel>
               <div className="supplier-table-body">
-                {loading ? (
-                  <p
-                    role="status"
-                    className="p-8 text-center text-sm text-slate-500"
-                  >
-                    Loading suppliers...
-                  </p>
-                ) : list?.items.length ? (
-                  <div className="erp-table-wrap">
+                {loading || list?.items.length ? (
+                  <div className="erp-table-wrap" aria-busy={loading}>
                     <table className="erp-table">
                       <caption className="sr-only">Suppliers</caption>
                       <thead>
@@ -496,7 +491,16 @@ export function SupplierView({
                         </tr>
                       </thead>
                       <tbody>
-                        {list.items.map((supplier, index) => (
+                        {loading ? (
+                          <tr>
+                            <td colSpan={columns.length} className="h-32">
+                              <span role="status" className="sr-only">
+                                Loading suppliers...
+                              </span>
+                            </td>
+                          </tr>
+                        ) : null}
+                        {list?.items.map((supplier, index) => (
                           <tr key={supplier.id}>
                             <td>{(page - 1) * 10 + index + 1}</td>
                             <td>

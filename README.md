@@ -16,6 +16,14 @@ Sales use sequential six-digit invoice numbers such as `HWB-000001`. New Sale sh
 
 Inventory / Stock (`/inventory`) contains the catalog and its left-hand Product Category filter. It is a single navigation entry with no Product List/Add Product dropdown, standalone Add Product page, or inventory product-entry dialog. Legacy `/products`, `/products/new`, and `/inventory/new` links redirect to `/inventory`; dashboard links open the stock overview. The category heading has a three-dot Add/Delete menu. Below it, product lists are headed directly by their category names, such as Battery or Parts, with a separate three-dot product-name Add/Delete menu for each category; there is no generic Product Name heading or separate Add/plus button. Opening Add from a category's menu preselects that category, including while All Products is selected. The interface calls database product types Product Category. Selecting a category/name enables its Delete action, followed by confirmation. Categories containing products cannot be deleted. A product name can be removed from its selected category only when no active or inactive products use that pair; shared names in other categories remain intact. All Products shows every category and its scoped names/counts, including names with zero products. New stock is added through Purchase. There are no Brands or separate Category-name inputs; existing database brand records remain intact. No preset categories or product names are seeded.
 
+Workspace resource reads reuse a bounded cache within the authenticated session and revalidate in the background on navigation and window focus. Inventory preloads its default catalog and product list. Category selection reuses the same metadata instead of fetching it again. Active catalog metadata also survives reloads in account-scoped session storage for up to 15 minutes, after authentication is verified; successful writes, cross-tab write notifications, logout, and session expiration invalidate it. The inventory table headings remain visible during the first uncached product request. Initial authentication and uncached business data still require a server connection.
+
+Production builds prerender the static workspace UI as HTML: navigation, page headings, filters, forms, and table headings. The session provider renders this layout immediately, with workspace controls inert until authentication completes. Database records, user identities, permissions, and current dates are resolved at runtime; no database reads run during static generation. For the compiled app without development compilation delays, run `npm run build`, then `npm start`. Development edits still use `npm run dev`.
+
+Session identity, roles, and permissions are read with one parameterized SQL join per request, followed by the existing guarded activity update. Authorization remains live rather than cached across requests. A read-only comparison against Neon reduced the six-query identity read from 310–325 ms to 52–54 ms; these figures measure that read, not complete page loading. Vercel's API function is configured for Singapore (`sin1`) alongside the Neon database; the region change takes effect on the next deployment.
+
+Customers store name, mobile, address, and account history. Vehicle type and identifier entry, vehicle search/grouping, and the customer Vehicle column/details have been removed, including the customer form inside Sales. The removal migration clears obsolete vehicle links and records and prevents new vehicle records at database level. An empty legacy Vehicle table remains readable for older deployed clients during rollout; it no longer stores customer vehicle information. Customer Details sizes to its own content rather than stretching with the customer list; its heading includes New Sale for the selected active customer.
+
 Purchase (`/purchases`) selects products and an active supplier. If a product is not yet defined, its New Product dialog lets catalog writers enter the name, category, unit, model/tracking details, and optional selling defaults without leaving Purchase. Saving selects that product in the current purchase while preserving entered quantity and price; it does not add stock. Enter integer quantity, unit purchase price, and required battery identities, then Receive & Confirm to add available stock. Receiving creates the purchase, receipt, batch costs, stock movements, balanced inventory/payable journal, optional initial supplier payment, and audit atomically. Prices and quantities contain no discount. Due, full, and partial initial payment are supported; payment requires finance permission. Retrying the same submission cannot duplicate stock. Purchase List reads persisted purchases and payment allocations.
 
 The New Purchase page fits the viewport with Receive & Confirm always visible. Long item lists use pagination; battery identities and optional notes open in dialogs. On phones, Details, Items, and Payment controls switch between panels without vertical page scrolling. Desktop and mobile browser checks cover short viewports and verify that the panels do not clip their contents.
@@ -24,7 +32,7 @@ The initial workspace was empty and was not a Git repository. Phase 1 documents 
 
 ## Run locally on this Windows computer
 
-Requires Node.js 24 and installed PostgreSQL 18 tools. Run from the project root in PowerShell:
+Requires Node.js 26 LTS and installed PostgreSQL 18 tools. Run from the project root in PowerShell:
 
 ```powershell
 Set-Location 'F:\Web Calculator\Hawlader Battery ERP'
@@ -120,7 +128,7 @@ Browser tests require both development servers, a local owner, and Chrome or Pla
 
 ## Validate the planning artifacts
 
-Requires Node.js 24; no dependency installation or database required:
+Requires Node.js 26; no dependency installation or database required:
 
 ```powershell
 node scripts/validate-phase1.mjs

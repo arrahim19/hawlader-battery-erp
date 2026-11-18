@@ -83,8 +83,8 @@ erDiagram
 | PartsProductDetail | One-to-one `productId`, specifications, optional warranty months; category required on parts |
 | Supplier | `name`, company, optional brand relation, normalized phone, address, active flag; phone indexed rather than assumed globally unique |
 | Customer | `name`, normalized phone, address, active flag; phone indexed, duplicate warning and authorized merge workflow rather than blanket uniqueness |
-| Vehicle | `customerId`, type, optional normalized registration/identifier, notes, active flag; `(customerId, identifier)` unique when identifier exists |
-| BatterySet | `customerId`, optional `vehicleId`, label, created date; service validates vehicle belongs to customer |
+| Vehicle | Empty legacy compatibility table; vehicle tracking was removed. A database constraint rejects new rows. |
+| BatterySet | `customerId`, label, created date; the legacy `vehicleId` is cleared and no longer populated |
 
 Prisma cannot enforce all subtype rules by declarations alone. Add SQL constraints/triggers or transaction-checked invariants so exactly the matching detail row exists for each product. Product duplicate identity is a stored canonical key built from type, brand/category, model, battery capacity/voltage or parts specification variant, and unit. Equivalent normalized identities conflict; legitimate specification variants remain possible. Never derive identity from selling price. Tracking kind, unit, and identity method cannot change after units or transactions reference the product; create a successor product instead.
 

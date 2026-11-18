@@ -30,6 +30,7 @@ export type {
   ExpenseOptions,
 } from "../../../../packages/api-client/src";
 export const SESSION_EXPIRED_EVENT = "hawlader:session-expired";
+export const RESOURCE_CHANGED_EVENT = "hawlader:resources-changed";
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -60,6 +61,18 @@ export async function api<T>(route: string, init?: RequestInit): Promise<T> {
       response.status,
       result.error?.message ?? "The server could not complete this request.",
     );
+  if (
+    init?.method &&
+    init.method.toUpperCase() !== "GET" &&
+    typeof window !== "undefined"
+  ) {
+    window.dispatchEvent(new Event(RESOURCE_CHANGED_EVENT));
+    try {
+      localStorage.setItem(RESOURCE_CHANGED_EVENT, crypto.randomUUID());
+    } catch {
+      // In-tab invalidation works even when browser storage is unavailable.
+    }
+  }
   return result.data as T;
 }
 export async function csrf() {

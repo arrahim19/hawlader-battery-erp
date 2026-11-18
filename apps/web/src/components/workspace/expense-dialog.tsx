@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/reference-ui";
 import { post, type ExpenseOptions } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
+import { notifyDashboardUpdate } from "@/lib/use-dashboard";
+import { useBusinessDate } from "@/lib/use-business-date";
 
 function ExpenseForm({
   preview,
@@ -17,6 +18,7 @@ function ExpenseForm({
   onSaved: () => void;
   onSavingChange: (saving: boolean) => void;
 }) {
+  const today = useBusinessDate();
   const options = useCatalogResource<ExpenseOptions>(
     preview ? null : "/expenses/options",
     0,
@@ -73,7 +75,7 @@ function ExpenseForm({
             type="date"
             name="expenseDate"
             aria-label="Expense date"
-            defaultValue={todayInDhaka()}
+            defaultValue={today}
             required
           />
         </Field>

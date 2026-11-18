@@ -22,7 +22,7 @@ export const childNavigation: Record<
   customers: [
     { label: "Customer List", view: "list" },
     { label: "Add Customer", view: "new" },
-    { label: "Customer Ledger", view: "ledger" },
+    { label: "Ledger", view: "ledger" },
   ],
   suppliers: [
     { label: "Supplier List", view: "list" },

@@ -20,6 +20,7 @@ import type { Request, Response } from "express";
 import type { CurrentUser } from "../../../packages/api-client/src";
 import { DatabaseService } from "./database.service";
 import { settings } from "./config";
+import { readSessionIdentity } from "./auth-session";
 
 // Load the native CommonJS package directly; Vercel's generated import shim
 // does not preserve Argon2's hash/verify exports.
@@ -63,30 +64,15 @@ export class AuthService {
   async session(req: AuthRequest): Promise<CurrentUser | null> {
     const raw: unknown = req.cookies?.[this.config.cookieName];
     if (typeof raw !== "string" || !/^[a-f0-9]{64}$/.test(raw)) return null;
-    const session = await this.db.session.findUnique({
-      where: { tokenHash: digest(raw) },
-      include: {
-        user: {
-          include: {
-            roles: {
-              include: {
-                role: {
-                  include: { permissions: { include: { permission: true } } },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    const session = await readSessionIdentity(this.db, digest(raw));
     const now = Date.now();
     if (
       !session ||
       session.revokedAt ||
-      !session.user.active ||
+      !session.active ||
       session.expiresAt.getTime() <= now ||
       session.lastSeenAt.getTime() + this.config.idleMinutes * 60000 <= now ||
-      session.createdAt.getTime() < session.user.passwordChangedAt.getTime()
+      session.createdAt.getTime() < session.passwordChangedAt.getTime()
     )
       return null;
     const updated = await this.db.session.updateMany({
@@ -100,17 +86,11 @@ export class AuthService {
     if (updated.count !== 1) return null;
     req.sessionId = session.id;
     req.currentUser = {
-      id: session.user.id,
-      name: session.user.name,
-      login: session.user.login,
-      roles: session.user.roles.map((entry) => entry.role.code),
-      permissions: [
-        ...new Set(
-          session.user.roles.flatMap((entry) =>
-            entry.role.permissions.map((grant) => grant.permission.code),
-          ),
-        ),
-      ],
+      id: session.userId,
+      name: session.name,
+      login: session.login,
+      roles: session.roles,
+      permissions: session.permissions,
     };
     return req.currentUser;
   }

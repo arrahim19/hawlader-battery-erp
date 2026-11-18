@@ -30,7 +30,6 @@ export interface CustomerRecord {
   address: string | null;
   active: boolean;
   createdAt: string;
-  vehicles: { id: string; type: string; identifier: string | null }[];
   totalSales: string;
   due: string;
 }

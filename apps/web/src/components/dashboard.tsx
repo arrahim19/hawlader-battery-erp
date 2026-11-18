@@ -27,7 +27,8 @@ import { Button } from "@/components/ui/button";
 import { CustomerSalesHistoryDialog } from "@/components/workspace/customer-sales-history";
 import type { DashboardData } from "@/lib/api";
 import { businessDate, money } from "@/lib/utils";
-import { todayInDhaka, useDashboardData } from "@/lib/use-dashboard";
+import { useDashboardData } from "@/lib/use-dashboard";
+import { useBusinessDate } from "@/lib/use-business-date";
 import {
   EmptyTable,
   Field,
@@ -38,7 +39,7 @@ import {
 
 export function Dashboard({ preview = false }: { preview?: boolean }) {
   const user = useSession();
-  const today = todayInDhaka();
+  const today = useBusinessDate();
   const [period, setPeriod] = useState("today");
   const [customOpen, setCustomOpen] = useState(false);
   const [custom, setCustom] = useState({ from: today, to: today });
@@ -46,24 +47,28 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
     DashboardData["recentSales"][number] | null
   >(null);
   const detailsButton = useRef<HTMLButtonElement | null>(null);
-  const start = new Date(today + "T12:00:00Z");
+  const start = new Date((today || "2000-01-01") + "T12:00:00Z");
   start.setUTCDate(
     start.getUTCDate() - (period === "week" ? 6 : period === "month" ? 29 : 0),
   );
   const from =
-    period === "custom" ? custom.from : start.toISOString().slice(0, 10);
-  const to = period === "custom" ? custom.to : today;
+    period === "custom"
+      ? custom.from || today
+      : today
+        ? start.toISOString().slice(0, 10)
+        : "";
+  const to = period === "custom" ? custom.to || today : today;
   const { data, error, loading, refresh } = useDashboardData({
     preview,
     from,
     to,
   });
-  const finance = preview || user?.permissions.includes("finance.read");
+  const finance = preview || !user || user.permissions.includes("finance.read");
   const count = (value?: string | number) =>
     value == null || preview ? "—" : String(value);
   const taka = (value?: string) => money(preview ? null : value);
   const has = (permission: string) =>
-    preview || user?.permissions.includes(permission);
+    preview || !user || user.permissions.includes(permission);
   return (
     <div className="dashboard-page">
       <div className="dashboard-intro">
@@ -131,8 +136,8 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                       type="date"
                       name="from"
                       required
-                      defaultValue={custom.from}
-                      max={custom.to}
+                      defaultValue={custom.from || today}
+                      max={custom.to || today}
                     />
                   </Field>
                   <Field label="শেষ তারিখ">
@@ -140,7 +145,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                       type="date"
                       name="to"
                       required
-                      defaultValue={custom.to}
+                      defaultValue={custom.to || today}
                       min={custom.from}
                     />
                   </Field>

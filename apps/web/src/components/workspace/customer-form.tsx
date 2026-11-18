@@ -24,7 +24,6 @@ export function CustomerForm({
     const name = text("name");
     const phone = text("phone");
     const address = text("address");
-    const vehicleType = text("vehicleType");
     if (!name || !/^[+0-9][0-9 ()-]{5,29}$/.test(phone)) {
       setError("Enter the customer's name and a valid mobile number.");
       return;
@@ -40,7 +39,6 @@ export function CustomerForm({
         name,
         phone,
         address,
-        ...(vehicleType ? { vehicleType } : {}),
       });
       onSaved(customer);
     } catch (error) {
@@ -54,9 +52,7 @@ export function CustomerForm({
   return (
     <form onSubmit={save} aria-busy={saving} className="grid gap-4">
       <fieldset disabled={saving} className="grid min-w-0 gap-4 sm:grid-cols-2">
-        <legend className="sr-only">
-          Customer contact and vehicle information
-        </legend>
+        <legend className="sr-only">Customer contact information</legend>
         <Field label="Customer Name" required>
           <input
             name="name"
@@ -84,14 +80,6 @@ export function CustomerForm({
             autoComplete="street-address"
             maxLength={500}
             required
-          />
-        </Field>
-        <Field label="Vehicle Type (Optional)" className="sm:col-span-2">
-          <input
-            name="vehicleType"
-            aria-label="Vehicle type (optional)"
-            placeholder="Car, motorcycle, easy bike..."
-            maxLength={100}
           />
         </Field>
       </fieldset>

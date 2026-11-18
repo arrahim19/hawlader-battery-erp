@@ -11,7 +11,7 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
       address: "Dhaka",
       active: true,
       createdAt: "2026-11-01",
-      vehicles: [],
+
       totalSales: "500",
       due: "100",
     },
@@ -22,7 +22,7 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
       address: "Khulna",
       active: true,
       createdAt: "2026-11-02",
-      vehicles: [],
+
       totalSales: "0",
       due: "0",
     },

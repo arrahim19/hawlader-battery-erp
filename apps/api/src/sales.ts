@@ -227,7 +227,7 @@ export class SalesController {
           select: { amount: true },
         },
       },
-      orderBy: [{ soldAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     const all = rows
       .map(({ soldAt, items, paymentAllocations, ...sale }) => {

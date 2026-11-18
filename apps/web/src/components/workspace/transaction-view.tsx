@@ -25,7 +25,7 @@ import {
   Panel,
   SummaryRows,
 } from "@/components/reference-ui";
-import { todayInDhaka } from "@/lib/use-dashboard";
+import { useBusinessDate } from "@/lib/use-business-date";
 import { ListFilters } from "@/components/workspace/lists-view";
 
 function PaymentPanel({ purchase }: { purchase: boolean }) {
@@ -117,6 +117,7 @@ export function TransactionView({
   preview: boolean;
   view?: string;
 }) {
+  const today = useBusinessDate();
   const [saleType, setSaleType] = useState("cash");
   const form = useRef<HTMLFormElement>(null);
   const current = [
@@ -247,7 +248,7 @@ export function TransactionView({
                       label={purchase ? "Purchase Date" : "Invoice Date"}
                       required
                     >
-                      <input type="date" defaultValue={todayInDhaka()} />
+                      <input type="date" defaultValue={today} />
                     </Field>
                     <Field
                       label={purchase ? "Invoice / Challan No." : "Invoice No"}

@@ -69,7 +69,7 @@ export function ModulePage({
   const [users, setUsers] = useState<UserRow[]>([]);
   const [shop, setShop] = useState<ShopSettings | null>(null);
   useEffect(() => {
-    if (preview) return;
+    if (preview || !user) return;
     const controller = new AbortController();
     api<{ status: string }>("/modules/" + module, { signal: controller.signal })
       .then(async () => {
@@ -95,7 +95,7 @@ export function ModulePage({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [module, preview]);
+  }, [module, preview, user]);
   if (!config) return null;
   if (referenceModules.includes(module))
     return (

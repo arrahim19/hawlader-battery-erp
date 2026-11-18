@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, type DashboardData } from "@/lib/api";
+import { useSession } from "@/components/session-provider";
 const dashboardUpdateKey = "hawlader:dashboard-update";
 export function notifyDashboardUpdate() {
   window.dispatchEvent(new Event(dashboardUpdateKey));
@@ -24,6 +25,8 @@ export function useDashboardData({
   from = todayInDhaka(),
   to = todayInDhaka(),
 }: { preview?: boolean; enabled?: boolean; from?: string; to?: string } = {}) {
+  const user = useSession();
+  const canLoad = enabled && Boolean(user) && Boolean(from && to);
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{
     key: string;
@@ -36,7 +39,7 @@ export function useDashboardData({
   const rangeKey = [from, to].join(":");
   const key = [rangeKey, revision].join(":");
   useEffect(() => {
-    if (preview || !enabled) return;
+    if (preview || !canLoad) return;
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible")
         setRevision((value) => value + 1);
@@ -56,9 +59,9 @@ export function useDashboardData({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       window.clearInterval(interval);
     };
-  }, [preview, enabled]);
+  }, [preview, canLoad]);
   useEffect(() => {
-    if (preview || !enabled) return;
+    if (preview || !canLoad) return;
     const controller = new AbortController();
     api<DashboardData>(`/dashboard?from=${from}&to=${to}`, {
       signal: controller.signal,
@@ -79,7 +82,7 @@ export function useDashboardData({
           });
       });
     return () => controller.abort();
-  }, [key, rangeKey, from, to, preview, enabled]);
+  }, [key, rangeKey, from, to, preview, canLoad]);
   return {
     // Keep the current range visible while polling or refreshing in the background.
     data: result?.key === rangeKey ? result.data : null,

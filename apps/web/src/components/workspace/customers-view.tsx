@@ -1,35 +1,40 @@
 "use client";
-import Link from "next/link";
-import { useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
-  Car,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Eye,
-  Filter,
   Plus,
   Search,
   Users,
 } from "lucide-react";
 import { ModuleTabs, Panel, workspaceHref } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
+import { useSession } from "@/components/session-provider";
 import { type CustomerList, type CustomerRecord } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { money } from "@/lib/utils";
 import { CustomerForm } from "./customer-form";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 
-const columns = [
-  "#",
-  "Customer",
-  "Mobile",
-  "Vehicle",
-  "Total Sales",
-  "Due",
-  "Details",
-];
+const columns = ["#", "Customer", "Mobile", "Total Sales", "Due", "Details"];
+const mobileCustomersQuery = "(max-width: 1023px)";
+function subscribeCustomerPageSize(listener: () => void) {
+  const query = window.matchMedia(mobileCustomersQuery);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+const customerPageSize = () =>
+  window.matchMedia(mobileCustomersQuery).matches ? 3 : 10;
+const staticCustomerPageSize = () => 10;
 
 export function CustomersView({
   preview,
@@ -39,13 +44,39 @@ export function CustomersView({
   view?: string;
 }) {
   const router = useRouter();
-  const current = ["new", "groups", "credit", "ledger"].includes(view)
-    ? view
-    : "list";
+  const user = useSession();
+  const canSell =
+    preview || Boolean(user?.permissions.includes("sales.manage"));
+  const current = ["new", "credit", "ledger"].includes(view) ? view : "list";
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
-  const [page, setPage] = useState(1);
+  const pageSize = useSyncExternalStore(
+    subscribeCustomerPageSize,
+    customerPageSize,
+    staticCustomerPageSize,
+  );
+  const [pagination, setPagination] = useState({ page: 1, pageSize });
+  const page = pagination.pageSize === pageSize ? pagination.page : 1;
+  const setPage = useCallback(
+    (next: number | ((previous: number) => number)) => {
+      setPagination((previous) => {
+        const currentPage = previous.pageSize === pageSize ? previous.page : 1;
+        return {
+          page: typeof next === "function" ? next(currentPage) : next,
+          pageSize,
+        };
+      });
+    },
+    [pageSize],
+  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search, setPage]);
   const [revision, setRevision] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyCustomer, setHistoryCustomer] = useState<CustomerRecord | null>(
@@ -57,7 +88,7 @@ export function CustomersView({
     status,
     credit: current === "credit" ? "due" : "all",
     page: String(page),
-    pageSize: "10",
+    pageSize: String(pageSize),
   });
   const resource = useCatalogResource<CustomerList>(
     preview ? null : "/customers?" + params,
@@ -67,28 +98,49 @@ export function CustomersView({
   const selected =
     list?.items.find((customer) => customer.id === selectedId) ??
     list?.items[0];
-  const pages = Math.max(1, Math.ceil((list?.total ?? 0) / 10));
-  const groups = new Map<
-    string,
-    { customers: Set<string>; vehicles: number }
-  >();
-  for (const customer of list?.items ?? []) {
-    for (const vehicle of customer.vehicles) {
-      const group = groups.get(vehicle.type) ?? {
-        customers: new Set<string>(),
-        vehicles: 0,
-      };
-      group.customers.add(customer.id);
-      group.vehicles += 1;
-      groups.set(vehicle.type, group);
-    }
-  }
+  const pages = Math.max(1, Math.ceil((list?.total ?? 0) / pageSize));
   const title =
     current === "credit"
       ? "Credit Customers"
       : current === "ledger"
         ? "Customer Ledger"
         : "Customer List";
+  const filters = (
+    <form
+      className="customer-list-filters"
+      role="search"
+      aria-label="Customer filters"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setQuery(search.trim());
+        setPage(1);
+      }}
+    >
+      <label className="erp-search">
+        <Search size={19} />
+        <input
+          aria-label="Search customers"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Name or mobile"
+          maxLength={160}
+        />
+      </label>
+      <select
+        className="erp-select"
+        aria-label="Customer status"
+        value={status}
+        onChange={(event) => {
+          setStatus(event.target.value);
+          setPage(1);
+        }}
+      >
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </form>
+  );
   return (
     <>
       <ModuleTabs
@@ -98,7 +150,7 @@ export function CustomersView({
         items={[
           { id: "list", label: "Customer List", icon: Users },
           { id: "new", label: "Add Customer", icon: Plus },
-          { id: "ledger", label: "Customer Ledger", icon: ClipboardList },
+          { id: "ledger", label: "Ledger", icon: ClipboardList },
         ]}
       />
       {resource.error ? (
@@ -130,88 +182,13 @@ export function CustomersView({
         </Panel>
       ) : (
         <>
-          <Panel className="mb-4">
-            <form
-              className="erp-filterbar"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setQuery(search.trim());
-                setPage(1);
-              }}
-            >
-              <label className="erp-search">
-                <Search size={19} />
-                <input
-                  aria-label="Search customers"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search name, mobile or vehicle..."
-                  maxLength={160}
-                />
-              </label>
-              <select
-                className="erp-select"
-                aria-label="Customer status"
-                value={status}
-                onChange={(event) => {
-                  setStatus(event.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="all">All statuses</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <Button type="submit" variant="outline" className="erp-button">
-                <Filter />
-                Filter
-              </Button>
-            </form>
-          </Panel>
-          {current === "groups" ? (
+          <div className="master-detail-layout customer-master-detail">
             <Panel
-              title="Vehicle Types on This Page"
-              icon={Car}
-              className="mb-4"
+              title={title}
+              icon={Users}
+              className="customer-list-panel"
+              action={filters}
             >
-              <div className="erp-table-wrap">
-                <table className="erp-table">
-                  <caption className="sr-only">
-                    Customer vehicle groups on the current page
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Vehicle Type</th>
-                      <th scope="col">Customers</th>
-                      <th scope="col">Vehicles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...groups]
-                      .sort(([first], [second]) => first.localeCompare(second))
-                      .map(([type, group]) => (
-                        <tr key={type}>
-                          <td>{type}</td>
-                          <td>{group.customers.size}</td>
-                          <td>{group.vehicles}</td>
-                        </tr>
-                      ))}
-                    {!groups.size ? (
-                      <tr>
-                        <td colSpan={3} className="text-slate-500">
-                          {resource.loading
-                            ? "Loading vehicle groups..."
-                            : "No vehicle details in these customer records."}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-          ) : null}
-          <div className="master-detail-layout">
-            <Panel title={title} icon={Users} className="customer-list-panel">
               {current === "ledger" ? (
                 <p className="px-4 pb-3 text-xs text-slate-500">
                   Select a customer to view their sales total and outstanding
@@ -219,7 +196,7 @@ export function CustomersView({
                 </p>
               ) : null}
               <div className="erp-table-wrap" aria-busy={resource.loading}>
-                <table className="erp-table min-w-[820px]">
+                <table className="erp-table min-w-[680px]">
                   <caption className="sr-only">Customers</caption>
                   <thead>
                     <tr>
@@ -240,7 +217,7 @@ export function CustomersView({
                             : undefined
                         }
                       >
-                        <td>{(page - 1) * 10 + index + 1}</td>
+                        <td>{(page - 1) * pageSize + index + 1}</td>
                         <td>
                           <button
                             type="button"
@@ -252,19 +229,7 @@ export function CustomersView({
                           </button>
                         </td>
                         <td className="whitespace-nowrap">{customer.phone}</td>
-                        <td>
-                          {customer.vehicles.length
-                            ? customer.vehicles
-                                .map(
-                                  (vehicle) =>
-                                    vehicle.type +
-                                    (vehicle.identifier
-                                      ? ` · ${vehicle.identifier}`
-                                      : ""),
-                                )
-                                .join(", ")
-                            : "—"}
-                        </td>
+
                         <td className="whitespace-nowrap">
                           {money(customer.totalSales)}
                         </td>
@@ -344,6 +309,25 @@ export function CustomersView({
             <Panel
               title="Customer Details"
               className="erp-details customer-details-panel"
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  className="customer-new-sale"
+                  disabled={!selected?.active || !canSell}
+                  onClick={() => {
+                    if (!selected?.active || !canSell) return;
+                    router.push(
+                      preview
+                        ? workspaceHref("sales", "new", true)
+                        : `/sales/new?customer=${encodeURIComponent(selected.id)}`,
+                    );
+                  }}
+                >
+                  <Plus />
+                  New Sale
+                </Button>
+              }
             >
               {selected ? (
                 <>
@@ -363,48 +347,10 @@ export function CustomersView({
                       </div>
                     ))}
                   </dl>
-                  <div className="px-4 pb-4">
-                    <h3 className="mb-2 text-xs font-semibold text-slate-700">
-                      Vehicles
-                    </h3>
-                    {selected.vehicles.length ? (
-                      <ul className="mb-4 grid gap-2 text-xs text-slate-600">
-                        {selected.vehicles.map((vehicle) => (
-                          <li
-                            key={vehicle.id}
-                            className="[overflow-wrap:anywhere]"
-                          >
-                            {vehicle.type}
-                            {vehicle.identifier
-                              ? ` · ${vehicle.identifier}`
-                              : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mb-4 text-xs text-slate-500">
-                        No vehicle details added.
-                      </p>
-                    )}
-                    {selected.active ? (
-                      <Button asChild size="sm">
-                        <Link
-                          href={
-                            preview
-                              ? workspaceHref("sales", "new", true)
-                              : `/sales/new?customer=${encodeURIComponent(selected.id)}`
-                          }
-                        >
-                          <Plus />
-                          New Sale
-                        </Link>
-                      </Button>
-                    ) : null}
-                  </div>
                 </>
               ) : (
                 <p className="erp-details-hint">
-                  Select a customer to view their contact and vehicle details.
+                  Select a customer to view their contact details.
                 </p>
               )}
             </Panel>

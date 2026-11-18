@@ -7,6 +7,7 @@ import { hash } from "argon2";
 import request from "supertest";
 import { createApp } from "../../apps/api/src/app";
 import { digest, passwordOptions } from "../../apps/api/src/auth";
+import { readSessionIdentity } from "../../apps/api/src/auth-session";
 import { DatabaseService } from "../../apps/api/src/database.service";
 import { businessRange, DashboardService } from "../../apps/api/src/dashboard";
 import { settings } from "../../apps/api/src/config";
@@ -96,6 +97,95 @@ before(async () => {
 });
 after(async () => {
   await app?.close();
+});
+
+test("joined session lookup preserves live grants and every session invalidation check", async () => {
+  const roles = await db.role.findMany({
+    where: { code: { in: ["OWNER", "SALES_STAFF"] } },
+  });
+  const createdAt = new Date(
+    Date.now() - (settings().idleMinutes + 5) * 60_000,
+  );
+  const changedAt = new Date(createdAt.getTime() - 60_000);
+  const user = await db.user.create({
+    data: {
+      login: "session-query-" + id,
+      name: "Session query fixture",
+      passwordHash: "unused",
+      passwordChangedAt: changedAt,
+      roles: { create: roles.map((role) => ({ roleId: role.id })) },
+    },
+  });
+  const token = randomBytes(32).toString("hex");
+  const session = await db.session.create({
+    data: {
+      userId: user.id,
+      createdAt,
+      tokenHash: digest(token),
+      csrfTokenHash: digest("fixture-csrf"),
+      expiresAt: new Date(Date.now() + 3600_000),
+    },
+  });
+  const me = () =>
+    request(app.getHttpServer())
+      .get("/api/v1/auth/me")
+      .set("Cookie", `${settings().cookieName}=${token}`);
+  const identity = await readSessionIdentity(db, digest(token));
+  assert(identity);
+  assert.deepEqual(identity.roles, ["OWNER", "SALES_STAFF"]);
+  assert.equal(new Set(identity.permissions).size, identity.permissions.length);
+  assert(identity.permissions.includes("finance.read"));
+  assert.equal("passwordHash" in identity, false);
+  assert.equal(await readSessionIdentity(db, "' OR TRUE --"), null);
+  await me().expect(200);
+
+  // Permissions are read fresh, even for an already authenticated cookie.
+  await db.userRole.deleteMany({ where: { userId: user.id } });
+  const noGrants = (await me().expect(200)).body.data;
+  assert.deepEqual(noGrants.roles, []);
+  assert.deepEqual(noGrants.permissions, []);
+  await request(app.getHttpServer())
+    .get("/api/v1/dashboard")
+    .set("Cookie", `${settings().cookieName}=${token}`)
+    .expect(403);
+
+  for (const invalid of [
+    { revokedAt: new Date() },
+    { expiresAt: new Date(Date.now() - 1000) },
+    {
+      lastSeenAt: new Date(Date.now() - (settings().idleMinutes + 1) * 60_000),
+    },
+  ]) {
+    await db.session.update({
+      where: { id: session.id },
+      data: {
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 3600_000),
+        lastSeenAt: new Date(),
+        ...invalid,
+      },
+    });
+    await me().expect(401);
+  }
+  await db.session.update({
+    where: { id: session.id },
+    data: { lastSeenAt: new Date() },
+  });
+  await db.user.update({ where: { id: user.id }, data: { active: false } });
+  await me().expect(401);
+  await db.user.update({
+    where: { id: user.id },
+    data: {
+      active: true,
+      passwordChangedAt: new Date(session.createdAt.getTime() + 1000),
+    },
+  });
+  await me().expect(401);
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordChangedAt: changedAt },
+  });
+  await me().expect(200);
 });
 
 test("supplier contacts enforce sessions, permissions, CSRF, and validated fields", async () => {
@@ -1937,13 +2027,11 @@ test("receiving without finance permission accepts due stock without product ide
   assert.equal(receipt.posting.journal, null);
 });
 
-test("customers are shared persisted contacts with vehicles, validation, audit and access checks", async () => {
+test("customers persist contacts without vehicle data, with validation, audit and access checks", async () => {
   const body = {
     name: "Shared customer " + id,
     phone: "+8801712345678",
     address: "Dhaka",
-    vehicleType: "Easy Bike",
-    vehicleIdentifier: "VEH-" + id,
   };
   await request(app.getHttpServer()).get("/api/v1/customers").expect(401);
   await staff
@@ -1963,18 +2051,29 @@ test("customers are shared persisted contacts with vehicles, validation, audit a
   }
   assert.equal((await write({ ...body, active: false })).status, 400);
   assert.equal((await write({ ...body, vehicleType: "" })).status, 400);
+  assert.equal(
+    (await write({ ...body, vehicleType: "Easy Bike" })).status,
+    400,
+  );
+  assert.equal(
+    (await write({ ...body, vehicleIdentifier: "VEH-" + id })).status,
+    400,
+  );
   const created = await write(body);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const customer = created.body.data;
   assert.equal(customer.totalSales, "0.00");
   assert.equal(customer.due, "0.00");
-  assert.equal(customer.vehicles[0].identifier, body.vehicleIdentifier);
+  assert.equal(Object.hasOwn(customer, "vehicles"), false);
   const stored = await db.customer.findUniqueOrThrow({
     where: { id: customer.id },
-    include: { vehicles: true },
   });
   assert.equal(stored.name, body.name);
-  assert.equal(stored.vehicles[0].type, body.vehicleType);
+  assert.equal(await db.vehicle.count(), 0);
+  await assert.rejects(
+    db.vehicle.create({ data: { customerId: customer.id, type: "Easy Bike" } }),
+    /vehicle_recording_disabled/,
+  );
   assert.equal(
     await db.auditLog.count({
       where: {
@@ -1987,7 +2086,7 @@ test("customers are shared persisted contacts with vehicles, validation, audit a
   );
   const listed = await owner
     .get("/api/v1/customers")
-    .query({ q: body.vehicleIdentifier, status: "active", credit: "clear" })
+    .query({ q: body.name, status: "active", credit: "clear" })
     .expect(200);
   assert.deepEqual(
     listed.body.data.items.map((item: { id: string }) => item.id),

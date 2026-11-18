@@ -377,7 +377,6 @@ test("purchase navigation and delayed list responses keep the layout stable", as
         ".top-header",
         ".main-content",
         ".erp-tabs",
-        ".page-footer",
         ".desktop-sidebar .brand",
         ".desktop-sidebar .sidebar-nav",
         ".erp-tabs .erp-tab:first-child",
@@ -805,6 +804,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   ).toHaveCount(0);
   await page.getByLabel("Purchase supplier").selectOption("supplier-one");
   await page.locator('input[type="date"]').fill("2026-11-15");
+  await page.getByLabel("Purchase transport amount", { exact: true }).fill("0");
   await page
     .getByRole("button", { name: "Confirm Purchase", exact: true })
     .click();

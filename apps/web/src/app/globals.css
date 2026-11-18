@@ -4409,21 +4409,30 @@ textarea {
     text-overflow: ellipsis;
   }
   .customer-list-panel > .erp-table-wrap {
-    height: clamp(190px, 28dvh, 250px);
-    overflow-y: auto;
+    height: auto;
   }
   .customer-list-panel .erp-table,
   .supplier-table-body .erp-table {
     table-layout: fixed;
     min-width: 820px;
   }
-  .customer-details-panel {
-    height: 260px;
-    overflow-y: auto;
+  .customer-list-panel .erp-table {
+    min-width: 680px;
   }
   .customer-list-panel .erp-pager > span {
-    align-self: stretch;
+    align-self: center;
     text-align: left;
+  }
+  .customer-list-panel > .erp-pager {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .customer-master-detail {
+    row-gap: 5px;
+  }
+  .app-shell .erp-tabs[data-module="customers"] {
+    margin-bottom: 5px;
+    padding-bottom: 0;
   }
   .supplier-list-layout > .erp-panel {
     display: flex;
@@ -4575,4 +4584,98 @@ textarea {
 }
 .sales-list-panel .sales-history-body .erp-table-wrap {
   overflow-y: auto;
+}
+
+.customer-list-panel > .erp-panel-heading {
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding-bottom: 14px;
+}
+.customer-details-panel {
+  align-self: start;
+  height: auto;
+  min-height: 0;
+  padding-bottom: 14px;
+}
+.customer-details-panel > .erp-panel-heading {
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+.customer-details-panel > .erp-panel-heading h2 {
+  font-size: 16px;
+  white-space: nowrap;
+}
+.customer-details-panel .customer-new-sale {
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.customer-details-panel > dl {
+  padding: 8px 16px 0;
+}
+.customer-list-panel > .erp-panel-heading h2 {
+  flex-shrink: 0;
+}
+.customer-list-filters {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: min(100%, 380px);
+}
+.customer-list-filters > .erp-search {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.customer-list-filters > .erp-select {
+  flex: 0 0 auto;
+}
+@media (max-width: 650px) {
+  .customer-list-panel > .erp-panel-heading {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0;
+    padding: 8px;
+  }
+  .customer-list-panel > .erp-panel-heading h2 {
+    gap: 4px;
+    font-size: 12px;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+  }
+  .customer-list-panel > .erp-panel-heading h2 > svg {
+    width: 16px;
+    height: 16px;
+  }
+  .customer-list-filters {
+    flex: 1;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 0;
+  }
+  .customer-list-filters > .erp-search {
+    flex: 0 1 124px;
+    margin-inline: auto;
+    height: 32px;
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .customer-list-filters > .erp-search svg {
+    width: 14px;
+    height: 14px;
+  }
+  .customer-list-filters > .erp-search input {
+    font-size: 12px;
+  }
+  .customer-list-filters > .erp-select {
+    flex: 0 0 auto;
+    min-width: 104px;
+    width: auto;
+    height: 32px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
 }

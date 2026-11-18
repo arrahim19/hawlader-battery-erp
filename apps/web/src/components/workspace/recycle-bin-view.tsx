@@ -106,13 +106,9 @@ export function RecycleBinView({ preview }: { preview: boolean }) {
           </Button>
         </div>
       ) : null}
-      {items.loading ? (
-        <p role="status" className="p-8 text-center text-sm">
-          Loading deleted items...
-        </p>
-      ) : rows.length ? (
+      {items.loading || rows.length ? (
         <>
-          <div className="erp-table-wrap">
+          <div className="erp-table-wrap" aria-busy={items.loading}>
             <table className="erp-table">
               <caption className="sr-only">Deleted items</caption>
               <thead>
@@ -132,6 +128,15 @@ export function RecycleBinView({ preview }: { preview: boolean }) {
                 </tr>
               </thead>
               <tbody>
+                {items.loading ? (
+                  <tr>
+                    <td colSpan={6} className="h-32">
+                      <span role="status" className="sr-only">
+                        Loading deleted items...
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
                 {rows.slice((current - 1) * 10, current * 10).map((item) => (
                   <tr key={item.id}>
                     <td>{item.name}</td>

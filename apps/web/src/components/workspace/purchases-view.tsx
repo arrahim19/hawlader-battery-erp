@@ -29,7 +29,8 @@ import {
   type CatalogProduct,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
+import { notifyDashboardUpdate } from "@/lib/use-dashboard";
+import { useBusinessDate } from "@/lib/use-business-date";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
 import { PurchaseDetailsButton, PurchaseQuickAdd } from "./purchase-quick-add";
@@ -125,9 +126,11 @@ export function PurchasesView({
     revision,
   );
   const [supplierId, setSupplierId] = useState(draft?.supplierId ?? "");
-  const [purchaseDate, setPurchaseDate] = useState(
-    () => draft?.purchaseDate || todayInDhaka(),
+  const today = useBusinessDate();
+  const [purchaseDateValue, setPurchaseDate] = useState<string | null>(
+    draft?.purchaseDate ?? null,
   );
+  const purchaseDate = purchaseDateValue ?? today;
   const [transportAmount, setTransportAmount] = useState(
     draft?.transportAmount ?? "",
   );
@@ -152,7 +155,7 @@ export function PurchasesView({
   const requestBody = useRef(draft?.requestBody ?? "");
   const submitting = useRef(false);
   useEffect(() => {
-    if (preview) return;
+    if (preview || !user) return;
     try {
       if (!cart.length) sessionStorage.removeItem(draftKey);
       else
@@ -184,6 +187,7 @@ export function PurchasesView({
     draftKey,
     preview,
     saving,
+    user,
   ]);
   const types = options.data?.types ?? [];
   const filteredProducts = [

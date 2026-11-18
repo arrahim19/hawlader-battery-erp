@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, BatteryCharging, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import {
   api,
   ApiError,
@@ -15,6 +15,7 @@ import {
   type CurrentUser,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { WorkspaceResourcesProvider } from "@/components/workspace-resources";
 
 const SessionContext = createContext<CurrentUser | null>(null);
 export function useSession() {
@@ -35,7 +36,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
     api<CurrentUser>("/auth/me", { signal: controller.signal })
-      .then(setUser)
+      .then((user) => {
+        if (!controller.signal.aborted) setUser(user);
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) return;
@@ -46,44 +49,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
     };
   }, [router, retry]);
-  if (error)
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8">
-          <AlertCircle className="mb-4 size-8 text-amber-500" />
-          <h1 className="text-xl font-semibold">Workspace unavailable</h1>
-          <p className="mt-3 text-sm leading-relaxed text-slate-500">{error}</p>
-          <p className="mt-3 text-xs text-slate-400">
-            Start the API and database, then apply migrations. Setup
-            instructions are in docs/DEVELOPMENT.md.
-          </p>
-          <Button
-            className="mt-6"
-            onClick={() => {
-              setError("");
-              setRetry((value) => value + 1);
-            }}
-          >
-            <RefreshCw />
-            Retry connection
-          </Button>
-        </div>
-      </main>
-    );
-  if (!user)
-    return (
-      <main
-        aria-busy="true"
-        aria-label="Loading workspace"
-        className="min-h-screen bg-slate-50 p-8"
-      >
-        <BatteryCharging className="mb-8 size-9 text-emerald-600" />
-        <p role="status" className="text-sm text-slate-500">
-          Opening workspace…
-        </p>
-      </main>
-    );
   return (
-    <SessionContext.Provider value={user}>{children}</SessionContext.Provider>
+    <SessionContext.Provider value={user}>
+      {error ? (
+        <section
+          role="alert"
+          className="fixed inset-0 z-100 flex items-center justify-center bg-slate-50/95 p-6"
+        >
+          <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8">
+            <AlertCircle className="mb-4 size-8 text-amber-500" />
+            <h1 className="text-xl font-semibold">Workspace unavailable</h1>
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
+              {error}
+            </p>
+            <p className="mt-3 text-xs text-slate-400">
+              Start the API and database, then apply migrations. Setup
+              instructions are in docs/DEVELOPMENT.md.
+            </p>
+            <Button
+              className="mt-6"
+              onClick={() => {
+                setError("");
+                setRetry((value) => value + 1);
+              }}
+            >
+              <RefreshCw />
+              Retry connection
+            </Button>
+          </div>
+        </section>
+      ) : null}
+      <WorkspaceResourcesProvider key={user?.id ?? "static"} user={user}>
+        {children}
+      </WorkspaceResourcesProvider>
+    </SessionContext.Provider>
   );
 }

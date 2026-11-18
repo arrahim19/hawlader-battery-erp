@@ -41,7 +41,8 @@ import {
   type SalesOptions,
 } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
-import { notifyDashboardUpdate, todayInDhaka } from "@/lib/use-dashboard";
+import { notifyDashboardUpdate } from "@/lib/use-dashboard";
+import { useBusinessDate } from "@/lib/use-business-date";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
 import { money } from "@/lib/utils";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
@@ -258,7 +259,9 @@ export function SalesView({
     [],
   );
   const [customerOpen, setCustomerOpen] = useState(false);
-  const [saleDate, setSaleDate] = useState(todayInDhaka);
+  const today = useBusinessDate();
+  const [saleDateValue, setSaleDate] = useState<string | null>(null);
+  const saleDate = saleDateValue ?? today;
   const [entries, setEntries] = useState<SaleEntry[]>([
     blankSaleEntry("entry-0"),
   ]);
@@ -693,17 +696,7 @@ export function SalesView({
                     </div>
                     <p className="sales-customer-contact">
                       {customer
-                        ? [
-                            customer.phone,
-                            customer.address,
-                            customer.vehicles
-                              .map((vehicle) =>
-                                [vehicle.type, vehicle.identifier]
-                                  .filter(Boolean)
-                                  .join(" · "),
-                              )
-                              .join(", "),
-                          ]
+                        ? [customer.phone, customer.address]
                             .filter(Boolean)
                             .join(" · ")
                         : ""}

@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { WorkspaceQuery } from "@/components/workspace-query";
+import { ModulePage } from "@/components/module-page";
 import { modules } from "@/lib/modules";
 import { childNavigation } from "@/lib/workspace-navigation";
 
@@ -30,9 +31,7 @@ export default async function WorkspacePage({
   return (
     <Suspense
       fallback={
-        <p className="workspace-route-loading" role="status">
-          Loading workspace...
-        </p>
+        <ModulePage module={moduleId} subpage={segments.slice(1).join("/")} />
       }
     >
       <WorkspaceQuery

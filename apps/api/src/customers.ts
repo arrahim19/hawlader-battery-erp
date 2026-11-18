@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -40,16 +39,6 @@ class CreateCustomerDto {
   @Matches(/^[+0-9][0-9 ()-]{5,29}$/)
   phone!: string;
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(500) address!: string;
-  @Transform(trim)
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  vehicleType?: string;
-  @Transform(trim)
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  vehicleIdentifier?: string;
 }
 class CustomersQueryDto {
   @Transform(trim) @IsOptional() @IsString() @MaxLength(160) q?: string;
@@ -77,11 +66,6 @@ export const customerFields = {
   address: true,
   active: true,
   createdAt: true,
-  vehicles: {
-    where: { active: true },
-    select: { id: true, type: true, identifier: true },
-    orderBy: { createdAt: "asc" },
-  },
 } satisfies Prisma.CustomerSelect;
 type CustomerRow = Prisma.CustomerGetPayload<{ select: typeof customerFields }>;
 export const postedSales = [
@@ -259,18 +243,6 @@ export class CustomersController {
               ...["name", "phone", "address"].map((field) => ({
                 [field]: { contains: query.q, mode: "insensitive" },
               })),
-              {
-                vehicles: {
-                  some: {
-                    OR: [
-                      {
-                        identifier: { contains: query.q, mode: "insensitive" },
-                      },
-                      { type: { contains: query.q, mode: "insensitive" } },
-                    ],
-                  },
-                },
-              },
             ],
           }
         : {}),
@@ -323,26 +295,12 @@ export class CustomersController {
     @Req() req: AuthRequest,
   ) {
     checkAccess(req);
-    if (body.vehicleIdentifier && !body.vehicleType)
-      throw new BadRequestException(
-        "Choose a vehicle type for the vehicle identifier.",
-      );
     const customer = await this.db.$transaction(async (tx) => {
       const created = await tx.customer.create({
         data: {
           name: body.name,
           phone: body.phone,
           address: body.address,
-          ...(body.vehicleType
-            ? {
-                vehicles: {
-                  create: {
-                    type: body.vehicleType,
-                    identifier: body.vehicleIdentifier || null,
-                  },
-                },
-              }
-            : {}),
         },
         select: customerFields,
       });

@@ -87,7 +87,6 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const canWrite =
     preview || Boolean(user?.permissions.includes("catalog.write"));
   const metadataParams = new URLSearchParams({ status });
-  if (typeId) metadataParams.set("typeId", typeId);
   const params = new URLSearchParams({
     status,
     page: String(page),
@@ -99,10 +98,12 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const metadata = useCatalogResource<CatalogMetadata>(
     preview ? null : "/catalog?" + metadataParams,
     revision,
+    true,
   );
   const products = useCatalogResource<ProductList>(
     preview ? null : "/products?" + params,
     revision,
+    true,
   );
   const selectedType = metadata.data?.types.find((item) => item.id === typeId);
   const selectedName = metadata.data?.categories.find(
@@ -347,12 +348,8 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
               ফিল্টার রিসেট
             </Button>
           </div>
-          {products.loading ? (
-            <p role="status" className="p-8 text-center text-sm text-slate-500">
-              Loading products...
-            </p>
-          ) : products.data?.items.length ? (
-            <div className="erp-table-wrap">
+          {products.loading || products.data?.items.length ? (
+            <div className="erp-table-wrap" aria-busy={products.loading}>
               <table className="erp-table">
                 <caption className="sr-only">Products</caption>
                 <thead>
@@ -365,7 +362,16 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.data.items.map((product, index) => (
+                  {products.loading ? (
+                    <tr>
+                      <td colSpan={columns.length} className="h-32">
+                        <span role="status" className="sr-only">
+                          Loading products...
+                        </span>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {products.data?.items.map((product, index) => (
                     <tr key={product.id}>
                       <td>{(page - 1) * pageSize + index + 1}</td>
                       <td>

@@ -9,6 +9,7 @@ export default [
       "**/dist/**",
       "**/generated/**",
       ".local/**",
+      ".tmp/**",
       "test-results/**",
       "playwright-report/**",
       "apps/web/next-env.d.ts",

@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { useSession } from "@/components/session-provider";
 import { Button } from "@/components/ui/button";
 import { workspaceHref } from "@/components/reference-ui";
+import { useBusinessDate } from "@/lib/use-business-date";
 
 export const navigation = [
   {
@@ -153,6 +154,7 @@ export function AppShell({
   const visible = navigation.filter(
     (item) =>
       preview ||
+      !user ||
       user?.permissions.includes(item.permission) ||
       (item.href === "/recycle-bin" &&
         user?.permissions.includes("transactions.reverse") &&
@@ -168,13 +170,16 @@ export function AppShell({
         .map((word) => word[0])
         .slice(0, 2)
         .join("");
-  const date = new Intl.DateTimeFormat("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Dhaka",
-  }).format(new Date());
+  const businessDay = useBusinessDate();
+  const date = businessDay
+    ? new Intl.DateTimeFormat("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "Asia/Dhaka",
+      }).format(new Date(businessDay + "T12:00:00+06:00"))
+    : "—";
   async function logout() {
     setLoggingOut(true);
     setLogoutError("");
@@ -204,7 +209,11 @@ export function AppShell({
           <strong>Howlader Battery</strong>
         </span>
       </Link>
-      <nav aria-label="Main navigation" className="sidebar-nav">
+      <nav
+        aria-label="Main navigation"
+        className="sidebar-nav"
+        inert={!preview && !user}
+      >
         {visible.map((item) => {
           const key = item.href.slice(1);
           const active = key === current;
@@ -212,6 +221,7 @@ export function AppShell({
             <div key={item.href} className="nav-row">
               <Link
                 href={workspaceHref(key, "", preview)}
+                prefetch={true}
                 title={collapsed ? item.label : undefined}
                 onClick={() => setOpen(false)}
                 className={cn("nav-item", active && "active")}
@@ -335,6 +345,7 @@ export function AppShell({
             </Dialog.Root>
             <DropdownMenu.Root>
               <DropdownMenu.Trigger
+                disabled={!preview && !user}
                 className="account-trigger"
                 aria-label="Account menu"
               >
@@ -397,7 +408,12 @@ export function AppShell({
           </div>
         ) : null}
         <main id="main-content" className="main-content">
-          <div className="workspace-content" ref={contentRef}>
+          <div
+            className="workspace-content"
+            ref={contentRef}
+            inert={!preview && !user}
+            aria-busy={!preview && !user}
+          >
             {children}
           </div>
         </main>

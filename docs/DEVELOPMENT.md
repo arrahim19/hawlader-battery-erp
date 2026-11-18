@@ -4,7 +4,7 @@ This guide runs the Phase 2 foundation. It does not enable unimplemented purchas
 
 ## Prerequisites and install
 
-- Node.js 24.x and npm; this delivery was checked with Node 24.21.0 and npm 11.19.0.
+- Node.js 26.x LTS and npm. The runtime upgrade is verified with Node 26.13.1. `.nvmrc`, `.node-version`, and the root and application manifests select Node 26.
 - PostgreSQL 18 client/server tools for the isolated local helper, or a separate reachable PostgreSQL database.
 - Ports 3000 and 3001 for frontend/API; port 55432 for the optional project-owned database.
 

@@ -1,13 +1,28 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
+import { useWorkspaceResources } from "@/components/workspace-resources";
+import { useSession } from "@/components/session-provider";
+
+const noSubscribe = () => () => {};
+const zero = () => 0;
 
 export function useCatalogResource<T>(
-  path: string | null,
+  requestedPath: string | null,
   revision: number,
   keepPreviousData = false,
 ) {
-  const key = JSON.stringify([path, revision]);
+  const user = useSession();
+  const requested = Boolean(requestedPath);
+  // Static HTML contains layout only; authenticated reads begin after /auth/me.
+  const path = user ? requestedPath : null;
+  const resources = useWorkspaceResources();
+  const generation = useSyncExternalStore(
+    resources?.subscribe ?? noSubscribe,
+    resources?.snapshot ?? zero,
+    zero,
+  );
+  const key = JSON.stringify([path, revision, generation]);
   const [result, setResult] = useState<{
     key: string;
     path: string;
@@ -19,13 +34,13 @@ export function useCatalogResource<T>(
   } | null>(null);
   useEffect(() => {
     if (!path) return;
-    const controller = new AbortController();
-    api<T>(path, { signal: controller.signal })
+    let active = true;
+    (resources ? resources.load<T>(path) : api<T>(path))
       .then((data) => {
-        if (!controller.signal.aborted) setResult({ key, path, data });
+        if (active) setResult({ key, path, data });
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted)
+        if (active)
           setFailure({
             key,
             message:
@@ -34,12 +49,16 @@ export function useCatalogResource<T>(
                 : "Unable to load the catalog.",
           });
       });
-    return () => controller.abort();
-  }, [path, key]);
+    return () => {
+      active = false;
+    };
+  }, [path, key, resources]);
   const data =
     result && (result.key === key || (keepPreviousData && result.path === path))
       ? result.data
-      : null;
+      : path
+        ? ((resources?.data.get(path) as T | undefined) ?? null)
+        : null;
   const error = failure?.key === key ? failure.message : "";
-  return { data, error, loading: Boolean(path) && !data && !error };
+  return { data, error, loading: requested && !data && !error };
 }

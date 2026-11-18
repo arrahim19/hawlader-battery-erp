@@ -27,7 +27,7 @@ const existingCustomer: CustomerRecord = {
   address: "Dhaka",
   active: true,
   createdAt: "2026-11-14T06:00:00.000Z",
-  vehicles: [],
+
   totalSales: "0.00",
   due: "0.00",
 };
@@ -191,15 +191,6 @@ async function mockSalesWorkspace(page: Page, extraProducts = 0) {
         address: body.address || null,
         active: true,
         createdAt: "2026-11-14T06:05:00.000Z",
-        vehicles: body.vehicleType
-          ? [
-              {
-                id: "created-vehicle",
-                type: body.vehicleType,
-                identifier: body.vehicleIdentifier || null,
-              },
-            ]
-          : [],
         totalSales: "0.00",
         due: "0.00",
       };
@@ -680,9 +671,9 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await newCustomer
     .getByLabel("Customer address", { exact: true })
     .fill("Barishal");
-  await newCustomer
-    .getByLabel("Vehicle type (optional)", { exact: true })
-    .fill("Easy Bike");
+  await expect(
+    newCustomer.getByLabel("Vehicle type (optional)", { exact: true }),
+  ).toHaveCount(0);
   await newCustomer
     .getByRole("button", { name: "Save Customer", exact: true })
     .click();
@@ -693,7 +684,6 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
       name: "Sales Created Customer",
       phone: "01800000002",
       address: "Barishal",
-      vehicleType: "Easy Bike",
     },
   ]);
   expect(await shellGeometry(page)).toEqual(originalShell);
@@ -719,10 +709,16 @@ test("a sale uses saved customers, filtered stock, editable prices and a safe re
   await expect(
     page.getByRole("heading", { name: "Customer Details", exact: true }),
   ).toBeVisible();
-  await page
-    .locator(".erp-details")
-    .getByRole("link", { name: "New Sale", exact: true })
-    .click();
+  await expect(
+    page.getByRole("columnheader", { name: "Vehicle", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .locator(".erp-details")
+      .getByRole("link", { name: "New Sale", exact: true }),
+  ).toHaveCount(0);
+  // Existing customer deep links continue to work without a customer-panel shortcut.
+  await page.goto("/sales/new?customer=created-customer");
   await expect(page).toHaveURL(/\/sales\/new\?customer=created-customer$/);
   await expect(customer).toHaveValue("created-customer");
   expect(await shellGeometry(page)).toEqual(originalShell);

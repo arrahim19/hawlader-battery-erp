@@ -41,7 +41,6 @@ Status codes: 200 read/update/command, 201 creation, 204 logout when appropriate
 | `GET/POST /roles`, `GET/PATCH /roles/{id}`, `GET /permissions`, `PUT /roles/{id}/permissions`, `PUT /users/{id}/roles` | RBAC administration; audit and revoke stale sessions |
 | CRUD `/product-types`, `/brands`, `/categories`, `/products` | Master data; no inventory increment; separate cost DTO guarded by finance permissions |
 | CRUD `/suppliers`, `/customers` | Party records; supplier contact-only and customer-only permission scopes |
-| `GET/POST /customers/{id}/vehicles`, `PATCH /vehicles/{id}` | Vehicle ownership validated |
 | `GET/POST /customers/{id}/battery-sets`, `PATCH /battery-sets/{id}` | Grouping; changes cannot rewrite sold-unit history |
 | `GET /customers/{id}/account`, `/suppliers/{id}/account`, `/customers/{id}/history`, `/suppliers/{id}/history` | Permission-scoped ledger/history and due; paginated |
 | CRUD `/purchases` | Create/edit only drafts; line costs and cost plan; supplier reference; no stock |
@@ -117,7 +116,7 @@ Proposed draft-based partial receiving example (future endpoint, distinct from i
 
 For a production-date product, these are two valid distinct physical units. The API generates two unique internal codes. For parts, omit `batteryIdentities`; for SERIAL/BOTH send required serial/date values. Receiving over ordered remaining quantity is a conflict.
 
-Sale drafts contain `customerId`, optional `vehicleId`/`batterySetId`, and items with `productId`, decimal quantity, selling price, discount, allowed warranty months, and exact battery IDs where applicable. Draft PATCH replaces the cart using `expectedVersion`. Confirmation takes only `expectedVersion` and initial payments; the server recalculates the draft and freezes values. Availability refresh does not substitute a different unit without user selection.
+Sale drafts contain `customerId`, optional `batterySetId`, and items with `productId`, decimal quantity, selling price, discount, allowed warranty months, and exact battery IDs where applicable. Draft PATCH replaces the cart using `expectedVersion`. Confirmation takes only `expectedVersion` and initial payments; the server recalculates the draft and freezes values. Availability refresh does not substitute a different unit without user selection.
 
 Customer payment POST supplies direction, customer, positive amount, method, and sale allocations. Supplier payments use supplier/purchase-receipt allocations. The party and every target must agree. An explicit `advance=true` permits unallocated balance; otherwise allocation totals equal payment amount. Currency is fixed BDT, never client-selectable.
 
