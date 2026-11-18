@@ -92,6 +92,7 @@ test("purchase quick add saves names and suppliers and stays open on outside cli
   await page.getByLabel("Purchase quantity").fill("10");
   await page.getByRole("button", { name: "Add Supplier", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Add Supplier", exact: true });
+  await expect(dialog.locator('[name="address"]')).toHaveCount(0);
   await dialog.getByLabel("Supplier Name").fill("New Supplier");
   await dialog.getByLabel("Mobile Number").fill("abc");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();

@@ -60,7 +60,7 @@ test("suppliers are created and assigned by category, and purchases show matchin
       created = request.postDataJSON();
       return data({ id: "created-supplier", ...created });
     }
-    if (path === "/suppliers/legacy-supplier/category") {
+    if (path === "/suppliers/legacy-supplier" && request.method() === "PATCH") {
       updated = request.postDataJSON();
       assigned = true;
       return data({
@@ -71,29 +71,34 @@ test("suppliers are created and assigned by category, and purchases show matchin
     }
     if (path === "/suppliers")
       return data({
-        items: suppliers.map((supplier) => ({
-          ...supplier,
-          phone: "01712345678",
-          address: null,
-          active: true,
-          createdAt: "2026-11-15",
-          productTypeId:
-            supplier.id === "legacy-supplier" && assigned
-              ? parts.id
-              : supplier.productTypeId,
-          productType:
-            supplier.id === "legacy-supplier"
-              ? assigned
-                ? parts
-                : null
-              : supplier.productTypeId === battery.id
-                ? battery
-                : parts,
-        })),
+        items: suppliers
+          .map((supplier) => ({
+            ...supplier,
+            phone: "01712345678",
+            active: true,
+            createdAt: "2026-11-15",
+            productTypeId:
+              supplier.id === "legacy-supplier" && assigned
+                ? parts.id
+                : supplier.productTypeId,
+            productType:
+              supplier.id === "legacy-supplier"
+                ? assigned
+                  ? parts
+                  : null
+                : supplier.productTypeId === battery.id
+                  ? battery
+                  : parts,
+          }))
+          .filter((supplier) => {
+            const productTypeId = new URL(request.url()).searchParams.get(
+              "productTypeId",
+            );
+            return !productTypeId || supplier.productTypeId === productTypeId;
+          }),
         total: 3,
         page: 1,
         pageSize: 10,
-        summary: { total: 3, active: 3 },
       });
     if (path === "/purchases/options")
       return data({
@@ -107,6 +112,7 @@ test("suppliers are created and assigned by category, and purchases show matchin
   });
 
   await page.goto("/suppliers/new");
+  await expect(page.locator('[name="address"]')).toHaveCount(0);
   await page
     .getByLabel("Supplier product category", { exact: true })
     .selectOption(battery.id);
@@ -124,20 +130,44 @@ test("suppliers are created and assigned by category, and purchases show matchin
     name: "New Battery Supplier",
     productTypeId: battery.id,
   });
+  expect(created).not.toHaveProperty("address");
+
+  const productFilter = page.getByLabel("Filter suppliers by product", {
+    exact: true,
+  });
+  await productFilter.selectOption(battery.id);
+  await expect(
+    page.getByRole("button", { name: "Edit Battery Supplier", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Edit Parts Supplier", exact: true }),
+  ).toHaveCount(0);
+  await productFilter.selectOption(parts.id);
+  await expect(
+    page.getByRole("button", { name: "Edit Parts Supplier", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Edit Battery Supplier", exact: true }),
+  ).toHaveCount(0);
+  await productFilter.selectOption("");
+  await expect(
+    page.getByRole("button", { name: "Edit Battery Supplier", exact: true }),
+  ).toBeVisible();
 
   await page
-    .getByRole("button", { name: "Legacy Supplier", exact: true })
+    .getByRole("button", { name: "Edit Legacy Supplier", exact: true })
     .click();
   await page
     .getByLabel("Supplier product category", { exact: true })
     .selectOption(parts.id);
   await page
-    .getByRole("button", { name: "Save Category", exact: true })
+    .getByRole("button", { name: "Update Supplier", exact: true })
     .click();
   await expect(
     page.getByRole("row").filter({ hasText: "Legacy Supplier" }),
   ).toContainText(parts.name);
-  expect(updated).toEqual({ productTypeId: parts.id });
+  expect(updated).toMatchObject({ productTypeId: parts.id });
+  expect(updated).not.toHaveProperty("address");
 
   await page.goto("/purchases/new");
   const category = page.getByLabel("Purchase product type", { exact: true });

@@ -168,7 +168,6 @@ async function mockSalesWorkspace(page: Page, extraProducts = 0) {
             counts: {
               products: 2,
               customers: customers.length,
-              suppliers: 0,
               availableStock: "12",
               pendingReplacements: 0,
               sentToCompany: 0,

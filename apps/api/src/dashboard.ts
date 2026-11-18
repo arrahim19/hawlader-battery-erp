@@ -51,7 +51,6 @@ export class DashboardService {
     const [
       products,
       customers,
-      suppliers,
       batteries,
       parts,
       pendingReplacements,
@@ -65,7 +64,6 @@ export class DashboardService {
     ] = await Promise.all([
       this.db.product.count({ where: { active: true } }),
       this.db.customer.count({ where: { active: true } }),
-      this.db.supplier.count({ where: { active: true } }),
       this.db.batteryUnit.count({
         where: { ...availableWhere, product: { active: true } },
       }),
@@ -148,7 +146,6 @@ export class DashboardService {
       counts: {
         products,
         customers,
-        suppliers,
         availableStock: new Prisma.Decimal(batteries)
           .add(parts._sum.quantity ?? 0)
           .toString(),

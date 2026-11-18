@@ -5,6 +5,8 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  MapPin,
+  Phone,
   ReceiptText,
   X,
 } from "lucide-react";
@@ -49,7 +51,7 @@ export function CustomerSalesHistoryDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/40" />
+        <Dialog.Overlay className="customer-history-overlay" />
         <Dialog.Content
           className="feature-dialog customer-history-dialog"
           aria-describedby={undefined}
@@ -58,38 +60,45 @@ export function CustomerSalesHistoryDialog({
             returnFocus();
           }}
         >
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
-            <div>
-              <Dialog.Title className="text-lg font-bold">
-                {sale ? "Sale Details" : "Customer Details"} — {details.name}
+          <header className="customer-history-header">
+            <span className="customer-history-mark">
+              <ReceiptText size={24} />
+            </span>
+            <div className="customer-history-heading">
+              <Dialog.Title>
+                {sale ? "Sale Details" : "Customer Details"}
               </Dialog.Title>
+              <p>{details.name}</p>
             </div>
             <Dialog.Close asChild>
               <Button
                 variant="ghost"
                 size="icon"
+                className="customer-history-close"
                 aria-label="Close customer details"
               >
                 <X />
               </Button>
             </Dialog.Close>
           </header>
-          <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
-            <div className="customer-history-contact mb-4 grid grid-cols-2 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="customer-history-body">
+            <div className="customer-history-contact">
               <div>
-                <p className="text-xs text-slate-500">Mobile</p>
-                <p className="mt-1 break-words text-sm font-medium">
-                  {details.phone}
-                </p>
+                <Phone size={17} aria-hidden="true" />
+                <div>
+                  <span>Mobile</span>
+                  <p>{details.phone || "—"}</p>
+                </div>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Address</p>
-                <p className="mt-1 break-words text-sm">
-                  {details.address || "—"}
-                </p>
+                <MapPin size={17} aria-hidden="true" />
+                <div>
+                  <span>Address</span>
+                  <p>{details.address || "—"}</p>
+                </div>
               </div>
             </div>
-            <div className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="customer-history-summary">
               {(sale
                 ? [
                     ["Invoice Total", money(sale.total)],
@@ -105,10 +114,7 @@ export function CustomerSalesHistoryDialog({
                     ["Outstanding Due", money(details.due)],
                   ]
               ).map(([label, value]) => (
-                <div
-                  key={label}
-                  className="min-w-0 rounded-xl border border-slate-200 p-3"
-                >
+                <div key={label} className="customer-history-stat">
                   <p className="text-[11px] text-slate-500">{label}</p>
                   <p className="mt-1 break-words text-sm font-bold sm:text-lg">
                     {value}
@@ -116,7 +122,7 @@ export function CustomerSalesHistoryDialog({
                 </div>
               ))}
             </div>
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-bold">
+            <h2 className="customer-history-section-title">
               <ReceiptText size={18} className="text-green-700" />
               {sale ? "Sold Products" : "Sales History"}
             </h2>
@@ -137,11 +143,8 @@ export function CustomerSalesHistoryDialog({
             ) : null}
             <div className="grid gap-4" aria-busy={history.loading}>
               {history.data?.items.map((sale) => (
-                <article
-                  key={sale.id}
-                  className="overflow-hidden rounded-xl border border-slate-200"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <article key={sale.id} className="customer-history-invoice">
+                  <div className="customer-history-invoice-header">
                     <div>
                       <h3 className="text-sm font-bold">
                         {sale.invoiceNumber ?? "Invoice"}
@@ -157,7 +160,7 @@ export function CustomerSalesHistoryDialog({
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold">{money(sale.total)}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">
+                      <p className="customer-history-status">
                         {(
                           {
                             CONFIRMED: "Confirmed",
@@ -169,7 +172,7 @@ export function CustomerSalesHistoryDialog({
                     </div>
                   </div>
                   <div className="erp-table-wrap">
-                    <table className="erp-table min-w-[600px]">
+                    <table className="erp-table customer-history-products">
                       <caption className="sr-only">
                         Products sold on invoice {sale.invoiceNumber ?? sale.id}
                       </caption>
@@ -182,7 +185,15 @@ export function CustomerSalesHistoryDialog({
                             "Unit Price",
                             "Amount",
                           ].map((label) => (
-                            <th key={label} scope="col">
+                            <th
+                              key={label}
+                              scope="col"
+                              className={
+                                label === "Model"
+                                  ? "invoice-model-column"
+                                  : undefined
+                              }
+                            >
                               {label}
                             </th>
                           ))}
@@ -191,8 +202,15 @@ export function CustomerSalesHistoryDialog({
                       <tbody>
                         {sale.products.map((product) => (
                           <tr key={product.id}>
-                            <td className="font-medium">{product.name}</td>
-                            <td>{product.model || "—"}</td>
+                            <td className="font-medium">
+                              {product.name}
+                              <small className="invoice-product-model">
+                                {product.model || "—"}
+                              </small>
+                            </td>
+                            <td className="invoice-model-column">
+                              {product.model || "—"}
+                            </td>
                             <td className="whitespace-nowrap">
                               {product.quantity} {product.unit}
                             </td>
@@ -205,21 +223,11 @@ export function CustomerSalesHistoryDialog({
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot>
-                        <tr>
-                          <th
-                            scope="row"
-                            colSpan={4}
-                            style={{ textAlign: "right" }}
-                          >
-                            Invoice Total:
-                          </th>
-                          <td className="whitespace-nowrap font-semibold text-slate-900">
-                            {money(sale.total)}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
+                  </div>
+                  <div className="customer-history-invoice-total">
+                    <span>Invoice Total</span>
+                    <strong>{money(sale.total)}</strong>
                   </div>
                 </article>
               ))}
@@ -237,7 +245,7 @@ export function CustomerSalesHistoryDialog({
               ) : null}
             </div>
           </div>
-          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+          <footer className="customer-history-footer">
             <span className="text-xs text-slate-500">
               Page {page} of {pages}
             </span>

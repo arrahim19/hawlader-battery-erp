@@ -5,12 +5,9 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { Dialog, AlertDialog } from "radix-ui";
 import {
-  Boxes,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  CreditCard,
-  Filter,
   LoaderCircle,
   Plus,
   Pencil,
@@ -49,17 +46,8 @@ const supplierSchema = z.object({
     .trim()
     .regex(/^[+0-9][0-9 ()-]{5,29}$/, "সঠিক মোবাইল নম্বর লিখুন।"),
   company: z.string().trim().max(160),
-  address: z.string().trim().max(500),
 });
-const columns = [
-  "#",
-  "Product Category",
-  "নাম",
-  "কোম্পানি / ব্র্যান্ড",
-  "মোবাইল",
-  "ঠিকানা",
-  "অ্যাকশন",
-];
+const columns = ["#", "Product", "নাম", "কোম্পানি / ব্র্যান্ড", "মোবাইল", "অ্যাকশন"];
 
 function SupplierForm({
   preview,
@@ -89,7 +77,6 @@ function SupplierForm({
       name: form.get("name"),
       phone: form.get("phone"),
       company: form.get("company"),
-      address: form.get("address"),
     });
     if (!result.success) {
       setFields(
@@ -130,7 +117,7 @@ function SupplierForm({
         <fieldset disabled={saving}>
           <legend className="sr-only">Supplier contact information</legend>
           <div className="supplier-form-grid">
-            <div className="supplier-form-full">
+            <div>
               <Field label="Product Category" required>
                 <select
                   name="productTypeId"
@@ -208,7 +195,7 @@ function SupplierForm({
                 </p>
               ) : null}
             </div>
-            <div className="supplier-form-company">
+            <div>
               <Field label="Company / Brand (optional)">
                 <input
                   name="company"
@@ -232,29 +219,31 @@ function SupplierForm({
                 </p>
               ) : null}
             </div>
-            <div className="supplier-form-full">
-              <Field label="ঠিকানা (ঐচ্ছিক)">
-                <textarea
-                  name="address"
-                  defaultValue={supplier?.address ?? ""}
-                  aria-label="Supplier address (optional)"
-                  autoComplete="street-address"
-                  placeholder="ঠিকানা থাকলে লিখুন..."
-                  maxLength={500}
-                  aria-invalid={Boolean(fields.address)}
-                  aria-describedby={
-                    fields.address ? "supplier-address-error" : undefined
-                  }
-                />
-              </Field>
-              {fields.address ? (
-                <p
-                  id="supplier-address-error"
-                  className="mt-1 text-xs text-red-600"
-                >
-                  {fields.address}
-                </p>
+            <div className="supplier-form-actions">
+              {!supplier ? (
+                <Button asChild variant="outline">
+                  <Link href={workspaceHref("suppliers", "", preview)}>
+                    Cancel
+                  </Link>
+                </Button>
               ) : null}
+              <Button
+                type="submit"
+                disabled={
+                  saving ||
+                  preview ||
+                  categories.loading ||
+                  !categories.data?.length
+                }
+                className="erp-button"
+              >
+                {saving ? <LoaderCircle className="animate-spin" /> : <Plus />}
+                {saving
+                  ? "Saving..."
+                  : supplier
+                    ? "Update Supplier"
+                    : "Save Supplier"}
+              </Button>
             </div>
           </div>
         </fieldset>
@@ -271,30 +260,6 @@ function SupplierForm({
             UI preview: সাপ্লায়ার সেভ করতে লগইন করুন।
           </p>
         ) : null}
-        <div className="mt-4 flex justify-end gap-3">
-          {!supplier ? (
-            <Button asChild variant="outline">
-              <Link href={workspaceHref("suppliers", "", preview)}>Cancel</Link>
-            </Button>
-          ) : null}
-          <Button
-            type="submit"
-            disabled={
-              saving ||
-              preview ||
-              categories.loading ||
-              !categories.data?.length
-            }
-            className="erp-button"
-          >
-            {saving ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            {saving
-              ? "Saving..."
-              : supplier
-                ? "Update Supplier"
-                : "Save Supplier"}
-          </Button>
-        </div>
       </form>
     </Panel>
   );
@@ -312,8 +277,19 @@ export function SupplierView({
   const user = useSession();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
+  const [productTypeId, setProductTypeId] = useState("");
+  const productTypes = useCatalogResource<{ id: string; name: string }[]>(
+    preview ? null : "/suppliers/product-types",
+    0,
+  );
   const [page, setPage] = useState(1);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const [revision, setRevision] = useState(0);
   const [editing, setEditing] = useState<SupplierRecord | null>(null);
   const [deleting, setDeleting] = useState<SupplierRecord | null>(null);
@@ -348,16 +324,16 @@ export function SupplierView({
     key: string;
     message: string;
   } | null>(null);
-  const key = JSON.stringify([query, status, page, revision]);
+  const key = JSON.stringify([query, productTypeId, page, revision]);
   useEffect(() => {
     if (preview || !user) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
       q: query,
-      status,
       page: String(page),
       pageSize: "10",
     });
+    if (productTypeId) params.set("productTypeId", productTypeId);
     api<SupplierList>("/suppliers?" + params, { signal: controller.signal })
       .then((data) => {
         if (!controller.signal.aborted) setResult({ key, data });
@@ -373,7 +349,7 @@ export function SupplierView({
           });
       });
     return () => controller.abort();
-  }, [preview, query, status, page, key, user]);
+  }, [preview, query, productTypeId, page, key, user]);
   const list = result?.key === key ? result.data : null;
   const error = failure?.key === key ? failure.message : "";
   const loading = !preview && !list && !error;
@@ -388,17 +364,10 @@ export function SupplierView({
         items={[
           { id: "list", label: "Supplier List", icon: Truck },
           { id: "new", label: "Add Supplier", icon: Plus },
-          { id: "groups", label: "Company / Brands", icon: Boxes },
-          { id: "credit", label: "Supplier Dues", icon: CreditCard },
-          { id: "ledger", label: "Supplier Ledger", icon: ClipboardList },
+          { id: "ledger", label: "Ledger", icon: ClipboardList },
         ]}
       />
       <div className="erp-stats supplier-stats">
-        <StatCard
-          label="Total Suppliers"
-          value={list ? String(list.summary.total) : "—"}
-          icon={Truck}
-        />
         <StatCard
           label="Total Due"
           value={money(preview ? null : data?.financials?.supplierDues)}
@@ -432,7 +401,7 @@ export function SupplierView({
         <>
           <Panel className="mb-4">
             <form
-              className="erp-filterbar"
+              className="erp-filterbar supplier-list-filters"
               onSubmit={(event) => {
                 event.preventDefault();
                 setQuery(search.trim());
@@ -446,26 +415,26 @@ export function SupplierView({
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   maxLength={160}
-                  placeholder="সাপ্লায়ারের নাম, মোবাইল বা কোম্পানি দিয়ে খুঁজুন..."
+                  placeholder="নাম, মোবাইল বা কোম্পানি দিয়ে খুঁজুন..."
                 />
               </label>
               <select
                 className="erp-select"
-                aria-label="Supplier status"
-                value={status}
+                aria-label="Filter suppliers by product"
+                value={productTypeId}
+                disabled={productTypes.loading}
                 onChange={(event) => {
-                  setStatus(event.target.value);
+                  setProductTypeId(event.target.value);
                   setPage(1);
                 }}
               >
-                <option value="all">স্ট্যাটাস: সকল</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="">Product: সকল</option>
+                {productTypes.data?.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
+                  </option>
+                ))}
               </select>
-              <Button type="submit" variant="outline" className="erp-button">
-                <Filter />
-                Filter
-              </Button>
               <Button asChild className="erp-button">
                 <Link href={workspaceHref("suppliers", "new", preview)}>
                   <Plus />
@@ -473,6 +442,11 @@ export function SupplierView({
                 </Link>
               </Button>
             </form>
+            {productTypes.error ? (
+              <p role="alert" className="px-4 pb-3 text-xs text-red-600">
+                {productTypes.error}
+              </p>
+            ) : null}
           </Panel>
           <div className="supplier-list-layout">
             <Panel>
@@ -513,9 +487,6 @@ export function SupplierView({
                             </td>
                             <td>{supplier.company || "—"}</td>
                             <td>{supplier.phone || "—"}</td>
-                            <td className="max-w-64 break-words whitespace-normal">
-                              {supplier.address || "—"}
-                            </td>
                             <td>
                               <div className="flex gap-1">
                                 <Button
@@ -562,7 +533,7 @@ export function SupplierView({
               </div>
               <div className="erp-pager">
                 <span>
-                  {list?.total ?? 0} suppliers · Page {page} of {pages}
+                  Page {page} of {pages}
                 </span>
                 <div>
                   <Button

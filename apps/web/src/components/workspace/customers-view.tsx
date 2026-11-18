@@ -24,6 +24,7 @@ import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { money } from "@/lib/utils";
 import { CustomerForm } from "./customer-form";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
+import { CustomerLedgerView } from "./customer-ledger-view";
 
 const columns = ["#", "Customer", "Mobile", "Total Sales", "Due", "Details"];
 const mobileCustomersQuery = "(max-width: 1023px)";
@@ -33,8 +34,8 @@ function subscribeCustomerPageSize(listener: () => void) {
   return () => query.removeEventListener("change", listener);
 }
 const customerPageSize = () =>
-  window.matchMedia(mobileCustomersQuery).matches ? 3 : 10;
-const staticCustomerPageSize = () => 10;
+  window.matchMedia(mobileCustomersQuery).matches ? 3 : 15;
+const staticCustomerPageSize = () => 15;
 
 export function CustomersView({
   preview,
@@ -91,7 +92,7 @@ export function CustomersView({
     pageSize: String(pageSize),
   });
   const resource = useCatalogResource<CustomerList>(
-    preview ? null : "/customers?" + params,
+    preview || current === "ledger" ? null : "/customers?" + params,
     revision,
   );
   const list = resource.data;
@@ -99,12 +100,7 @@ export function CustomersView({
     list?.items.find((customer) => customer.id === selectedId) ??
     list?.items[0];
   const pages = Math.max(1, Math.ceil((list?.total ?? 0) / pageSize));
-  const title =
-    current === "credit"
-      ? "Credit Customers"
-      : current === "ledger"
-        ? "Customer Ledger"
-        : "Customer List";
+  const title = current === "credit" ? "Credit Customers" : "Customer List";
   const filters = (
     <form
       className="customer-list-filters"
@@ -168,7 +164,9 @@ export function CustomersView({
           </Button>
         </div>
       ) : null}
-      {current === "new" ? (
+      {current === "ledger" ? (
+        <CustomerLedgerView preview={preview} />
+      ) : current === "new" ? (
         <Panel title="Add Customer" icon={Users}>
           <div className="erp-form-body">
             <CustomerForm
@@ -189,12 +187,6 @@ export function CustomersView({
               className="customer-list-panel"
               action={filters}
             >
-              {current === "ledger" ? (
-                <p className="px-4 pb-3 text-xs text-slate-500">
-                  Select a customer to view their sales total and outstanding
-                  balance.
-                </p>
-              ) : null}
               <div className="erp-table-wrap" aria-busy={resource.loading}>
                 <table className="erp-table min-w-[680px]">
                   <caption className="sr-only">Customers</caption>

@@ -244,14 +244,13 @@ test("supplier contacts enforce sessions, permissions, CSRF, and validated field
   assert.equal(await db.supplier.count(), count);
 });
 
-test("suppliers persist without an address, are audited, and can be searched and paged", async () => {
+test("suppliers omit address, are audited, and can be searched and paged", async () => {
   const before = await db.supplier.count();
   const type = await db.productType.findUniqueOrThrow({
     where: { code: "BATTERY" },
   });
-  const addresses = [undefined, "   ", null, "  Dhaka, Bangladesh  "];
   const created = [];
-  for (const [index, address] of addresses.entries()) {
+  for (let index = 0; index < 4; index++) {
     const name = `Supplier ${id} ${index}`;
     const response = await owner
       .post("/api/v1/suppliers")
@@ -262,21 +261,20 @@ test("suppliers persist without an address, are audited, and can be searched and
         name: "  " + name + "  ",
         phone: "01712345678",
         company: "  Company " + id + "  ",
-        address,
       })
       .expect(201);
     const supplier = response.body.data;
     created.push(supplier);
     assert.equal(supplier.name, name);
     assert.equal(supplier.company, "Company " + id);
-    assert.equal(supplier.address, index === 3 ? "Dhaka, Bangladesh" : null);
+    assert.equal("address" in supplier, false);
     assert.equal(supplier.active, true);
     assert.equal(supplier.productTypeId, type.id);
     assert.equal(supplier.productType.name, type.name);
     const stored = await db.supplier.findUniqueOrThrow({
       where: { id: supplier.id },
     });
-    assert.equal(stored.address, supplier.address);
+    assert.equal("address" in stored, false);
     const audit = await db.auditLog.findFirstOrThrow({
       where: { action: "SUPPLIER_CREATED", resourceId: supplier.id },
     });
@@ -293,7 +291,7 @@ test("suppliers persist without an address, are audited, and can be searched and
   assert.equal(first.total, 4);
   assert.equal(first.items.length, 1);
   assert.notEqual(first.items[0].id, second.items[0].id);
-  assert.equal(first.summary.total, before + 4);
+  assert.equal("summary" in first, false);
   assert.equal("totalPayable" in first.items[0], false);
   await db.supplier.update({
     where: { id: created[0].id },
@@ -324,6 +322,14 @@ test("suppliers persist without an address, are audited, and can be searched and
   assert.equal(assigned.status, 201);
   assert.equal(assigned.body.data.productTypeId, parts.id);
   assert.equal(assigned.body.data.productType.name, parts.name);
+  const filtered = (
+    await owner
+      .get(`/api/v1/suppliers?q=${id}&productTypeId=${parts.id}`)
+      .expect(200)
+  ).body.data;
+  assert.equal(filtered.total, 1);
+  assert.equal(filtered.items[0].id, created[1].id);
+  await owner.get("/api/v1/suppliers?productTypeId=invalid").expect(400);
   assert.equal(
     (await db.supplier.findUniqueOrThrow({ where: { id: created[1].id } }))
       .productTypeId,
@@ -1645,6 +1651,9 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     },
     { ...body, supplierId: partsSupplier.id },
     { ...body, discount: "1" },
+    { ...body, reference: undefined },
+    { ...body, reference: "" },
+    { ...body, reference: "   " },
     { ...body, purchaseDate: "2025-02-31" },
     { ...body, supplierId: randomUUID() },
     { ...body, paidAmount: "999999.00" },
@@ -1721,6 +1730,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   const partsReceived = await receive({
     supplierId: partsSupplier.id,
     purchaseDate: body.purchaseDate,
+    reference: "Parts receipt " + id,
     items: [{ productId: part.id, quantity: 3, unitPrice: "12.25" }],
     paidAmount: "0.00",
   });
@@ -1993,6 +2003,7 @@ test("receiving without finance permission accepts due stock without product ide
   const body = {
     supplierId: supplier.id,
     purchaseDate: "2025-06-01",
+    reference: "Receiver receipt " + id,
     items: [
       {
         productId,
@@ -2069,11 +2080,11 @@ test("customers persist contacts without vehicle data, with validation, audit an
     where: { id: customer.id },
   });
   assert.equal(stored.name, body.name);
-  assert.equal(await db.vehicle.count(), 0);
-  await assert.rejects(
-    db.vehicle.create({ data: { customerId: customer.id, type: "Easy Bike" } }),
-    /vehicle_recording_disabled/,
-  );
+  const removedTables = await db.$queryRaw<{ tableName: string }[]>`
+    SELECT table_name AS "tableName" FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name IN ('Vehicle', 'BatterySet')
+  `;
+  assert.deepEqual(removedTables, []);
   assert.equal(
     await db.auditLog.count({
       where: {
@@ -2184,7 +2195,12 @@ test("sales atomically consume FIFO stock, preserve warranty, post exact payment
         .set("Origin", origin())
         .set("X-CSRF-Token", await csrf(owner))
         .set("Idempotency-Key", randomUUID())
-        .send({ supplierId, purchaseDate, items: categoryItems })
+        .send({
+          supplierId,
+          purchaseDate,
+          reference: "Sale fixture " + id,
+          items: categoryItems,
+        })
         .expect(201);
     }
   };
@@ -3131,6 +3147,7 @@ test("receiving batteries without serial numbers creates stock and replays safel
   const body = {
     supplierId: supplier.id,
     purchaseDate: "2026-11-15",
+    reference: "Stock receipt " + id,
     items: [{ productId, quantity: 15, unitPrice: "1000.10" }],
   };
   const send = async (payload: object, requestKey = key) =>
@@ -3677,4 +3694,337 @@ test("customer sales history returns only that customer's posted invoices and or
     .expect(200);
   assert.equal(emptyHistory.body.data.total, 0);
   assert.deepEqual(emptyHistory.body.data.items, []);
+});
+
+test("customer ledger carries opening balances, returns and collections with atomic payment replay", async () => {
+  const customer = await db.customer.create({
+    data: {
+      name: "Ledger customer " + id,
+      phone: "01700000000",
+      address: "Dhaka",
+    },
+  });
+  const [receivable, revenue, cash] = await Promise.all(
+    ["1200", "4100", "1100"].map((code) =>
+      db.account.findUniqueOrThrow({ where: { code } }),
+    ),
+  );
+  const createInvoice = async (total: string, date: string) =>
+    db.$transaction(async (tx) => {
+      const posting = await tx.posting.create({
+        data: {
+          actorId: ownerId,
+          kind: "SALE_COMPLETE",
+          sourceCode: "ledger-test:" + randomUUID(),
+        },
+      });
+      const soldAt = new Date(date + "T12:00:00+06:00");
+      const sale = await tx.sale.create({
+        data: {
+          customerId: customer.id,
+          postingId: posting.id,
+          invoiceNumber: "LEDGER-" + randomUUID(),
+          status: "CONFIRMED",
+          soldAt,
+          subtotal: total,
+          total,
+        },
+      });
+      await tx.journalEntry.create({
+        data: {
+          postingId: posting.id,
+          postedAt: soldAt,
+          reason: "Ledger test invoice",
+          lines: {
+            create: [
+              {
+                customerId: customer.id,
+                accountId: receivable.id,
+                debit: total,
+              },
+              { accountId: revenue.id, credit: total },
+            ],
+          },
+        },
+      });
+      return sale;
+    });
+  const first = await createInvoice("100.50", "2026-11-10");
+  const second = await createInvoice("200.25", "2026-11-12");
+  const url = `/api/v1/customers/${customer.id}/ledger`;
+  await request(app.getHttpServer()).get(url).expect(401);
+  await owner.get(url).query({ from: "2026-11-10" }).expect(400);
+  await owner
+    .get(url)
+    .query({ from: "2026-02-30", to: "2026-11-12" })
+    .expect(400);
+  const initial = (await owner.get(url).expect(200)).body.data;
+  assert.equal(initial.summary.closing, "300.75");
+  const paymentUrl = `/api/v1/customers/${customer.id}/payments`;
+  const body = {
+    date: "2026-11-11",
+    amount: "50.25",
+    paymentAccountId: cash.id,
+    reference: "Ledger receipt",
+  };
+  const token = await csrf(owner);
+  const key = randomUUID();
+  const collect = (payload: object, requestKey = key) =>
+    owner
+      .post(paymentUrl)
+      .set("Origin", origin())
+      .set("X-CSRF-Token", token)
+      .set("Idempotency-Key", requestKey)
+      .send(payload);
+  await owner
+    .post(paymentUrl)
+    .set("Origin", origin())
+    .set("Idempotency-Key", key)
+    .send(body)
+    .expect(403);
+  await collect({ ...body, amount: "300.76" }, randomUUID()).expect(400);
+  const receipt = (await collect(body).expect(201)).body.data;
+  assert.equal(receipt.due, "250.50");
+  assert.deepEqual((await collect(body).expect(201)).body.data, receipt);
+  await collect({ ...body, amount: "51.25" }).expect(409);
+  assert.equal(await db.payment.count({ where: { id: receipt.id } }), 1);
+  assert.equal(
+    (
+      await db.paymentAllocation.findFirstOrThrow({
+        where: { paymentId: receipt.id },
+      })
+    ).saleId,
+    first.id,
+  );
+  const period = (
+    await owner
+      .get(url)
+      .query({ from: "2026-11-12", to: "2026-11-12" })
+      .expect(200)
+  ).body.data;
+  assert.deepEqual(period.summary, {
+    opening: "50.25",
+    debit: "200.25",
+    credit: "0.00",
+    closing: "250.50",
+  });
+  assert.equal(period.items.length, 1);
+  assert.equal(period.items[0].balance, "250.50");
+  await db.$transaction(async (tx) => {
+    const posting = await tx.posting.create({
+      data: {
+        actorId: ownerId,
+        kind: "SALES_RETURN",
+        sourceCode: "ledger-return:" + randomUUID(),
+      },
+    });
+    await tx.salesReturn.create({
+      data: {
+        number: "RETURN-" + randomUUID(),
+        saleId: second.id,
+        postingId: posting.id,
+        reason: "Ledger return",
+        creditAmount: "20.00",
+      },
+    });
+    await tx.sale.update({
+      where: { id: second.id },
+      data: { status: "PARTIALLY_RETURNED" },
+    });
+    await tx.journalEntry.create({
+      data: {
+        postingId: posting.id,
+        postedAt: new Date("2026-11-13T12:00:00+06:00"),
+        reason: "Ledger return",
+        lines: {
+          create: [
+            { accountId: revenue.id, debit: "20.00" },
+            {
+              accountId: receivable.id,
+              customerId: customer.id,
+              credit: "20.00",
+            },
+          ],
+        },
+      },
+    });
+  });
+  const returned = (await owner.get(url).expect(200)).body.data;
+  assert.equal(returned.summary.closing, "230.50");
+  assert(
+    returned.items.some((entry: { kind: string }) => entry.kind === "return"),
+  );
+  const attempts = await Promise.all([
+    collect({ ...body, date: "2026-11-14", amount: "160.00" }, randomUUID()),
+    collect({ ...body, date: "2026-11-14", amount: "160.00" }, randomUUID()),
+  ]);
+  assert.deepEqual(
+    attempts.map((response) => response.status).sort(),
+    [201, 400],
+  );
+  const final = (await owner.get(url).expect(200)).body.data;
+  assert.equal(final.summary.closing, "70.50");
+  assert.equal(final.customer.due, "70.50");
+  assert.equal(final.items.at(-1).balance, "70.50");
+  assert.equal(
+    await db.auditLog.count({
+      where: {
+        action: "CUSTOMER_DUE_COLLECTION",
+        metadata: { path: ["customerId"], equals: customer.id },
+      },
+    }),
+    2,
+  );
+});
+
+test("customer ledger combines an invoice and its initial payment in one simple row", async () => {
+  const customer = await db.customer.create({
+    data: { name: "Ledger ordering " + id, phone: "01700000001" },
+  });
+  const [receivable, revenue, cash] = await Promise.all(
+    ["1200", "4100", "1100"].map((code) =>
+      db.account.findUniqueOrThrow({ where: { code } }),
+    ),
+  );
+  await db.$transaction(async (tx) => {
+    const date = new Date("2026-11-15T06:00:00Z");
+    const posting = await tx.posting.create({
+      data: {
+        actorId: ownerId,
+        kind: "SALE_COMPLETE",
+        sourceCode: "ledger-order:" + randomUUID(),
+      },
+    });
+    const sale = await tx.sale.create({
+      data: {
+        customerId: customer.id,
+        postingId: posting.id,
+        status: "CONFIRMED",
+        soldAt: date,
+        subtotal: "100",
+        total: "100",
+      },
+    });
+    const saleJournal = await tx.journalEntry.create({
+      data: {
+        id: "ffffffff" + randomUUID().slice(8),
+        postingId: posting.id,
+        postedAt: date,
+        lines: {
+          create: [
+            { accountId: receivable.id, customerId: customer.id, debit: "100" },
+            { accountId: revenue.id, credit: "100" },
+          ],
+        },
+      },
+    });
+    const paymentPosting = await tx.posting.create({
+      data: {
+        actorId: ownerId,
+        kind: "CUSTOMER_PAYMENT",
+        sourceCode: "ledger-order-payment:" + randomUUID(),
+      },
+    });
+    const journal = await tx.journalEntry.create({
+      data: {
+        id: "00000000" + randomUUID().slice(8),
+        postingId: paymentPosting.id,
+        postedAt: date,
+        createdAt: saleJournal.createdAt,
+        lines: {
+          create: [
+            { accountId: cash.id, debit: "40" },
+            { accountId: receivable.id, customerId: customer.id, credit: "40" },
+          ],
+        },
+      },
+    });
+    await tx.payment.create({
+      data: {
+        number: "ORDER-PAY-" + randomUUID(),
+        amount: "40",
+        method: "CASH",
+        direction: "INCOMING",
+        occurredAt: date,
+        customerId: customer.id,
+        assetAccountId: cash.id,
+        journalId: journal.id,
+        allocations: { create: { saleId: sale.id, amount: "40" } },
+      },
+    });
+  });
+  const ledger = (
+    await owner.get(`/api/v1/customers/${customer.id}/ledger`).expect(200)
+  ).body.data;
+  assert.deepEqual(
+    ledger.items.map((item: { kind: string; balance: string }) => [
+      item.kind,
+      item.balance,
+    ]),
+    [["sale", "60.00"]],
+  );
+  assert.equal(ledger.items[0].debit, "100.00");
+  assert.equal(ledger.items[0].credit, "40.00");
+  const role = await db.role.create({
+    data: {
+      code: "LEDGER_READER_" + id,
+      name: "Ledger reader",
+      permissions: {
+        create: { permission: { connect: { code: "parties.customers" } } },
+      },
+    },
+  });
+  const readerLogin = "ledger-reader-" + id;
+  await db.user.create({
+    data: {
+      name: "Ledger reader",
+      login: readerLogin,
+      passwordHash: await hash(password, passwordOptions),
+      roles: { create: { roleId: role.id } },
+    },
+  });
+  const reader = request.agent(app.getHttpServer());
+  assert.equal((await login(reader, readerLogin)).status, 201);
+  assert.deepEqual(
+    (await reader.get(`/api/v1/customers/${customer.id}/ledger`).expect(200))
+      .body.data.paymentAccounts,
+    [],
+  );
+  await reader
+    .post(`/api/v1/customers/${customer.id}/payments`)
+    .set("Origin", origin())
+    .set("X-CSRF-Token", await csrf(reader))
+    .set("Idempotency-Key", randomUUID())
+    .send({ date: "2026-11-16", amount: "1", paymentAccountId: cash.id })
+    .expect(403);
+});
+
+test("simple customer statements omit cancelled invoice activity and still reconcile with the account", async () => {
+  const customer = await db.customer.findFirstOrThrow({
+    where: { sales: { some: { status: "CANCELLED" } } },
+  });
+  const active = await db.sale.findMany({
+    where: {
+      customerId: customer.id,
+      status: { in: ["CONFIRMED", "PARTIALLY_RETURNED", "RETURNED"] },
+    },
+    select: { id: true },
+  });
+  const ledger = (
+    await owner.get(`/api/v1/customers/${customer.id}/ledger`).expect(200)
+  ).body.data;
+  assert.equal(ledger.summary.closing, ledger.customer.due);
+  assert.deepEqual(
+    ledger.items
+      .filter((item: { kind: string }) => item.kind === "sale")
+      .map((item: { id: string }) => item.id)
+      .sort(),
+    active.map((sale) => sale.id).sort(),
+  );
+  assert(
+    !ledger.items.some(
+      (item: { kind: string; reference: string }) =>
+        item.kind === "reversal" || /^(PAY|REV|RST)-/.test(item.reference),
+    ),
+  );
 });

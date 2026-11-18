@@ -9,6 +9,7 @@ import { SalesView } from "@/components/workspace/sales-view";
 import { CustomersView } from "@/components/workspace/customers-view";
 import { AccountsView } from "@/components/workspace/accounts-view";
 import { SupplierView } from "@/components/workspace/suppliers-view";
+import { SupplierLedgerView } from "@/components/workspace/supplier-ledger-view";
 import { PurchasesView } from "@/components/workspace/purchases-view";
 import { RecycleBinView } from "@/components/workspace/recycle-bin-view";
 export const referenceModules = [
@@ -98,6 +99,8 @@ export function ReferenceWorkspace({
         <CatalogView preview={preview} />
       ) : moduleId === "replacements" ? (
         <ReplacementView preview={preview} view={view} data={data} />
+      ) : moduleId === "suppliers" && view === "ledger" ? (
+        <SupplierLedgerView preview={preview} />
       ) : moduleId === "suppliers" && ["", "list", "new"].includes(view) ? (
         <SupplierView preview={preview} view={view} data={data} />
       ) : moduleId === "suppliers" ? (

@@ -441,7 +441,6 @@ export class TransactionCancellationController {
                   posting: { include: { journal: true } },
                   items: {
                     include: {
-                      returns: true,
                       batch: {
                         include: {
                           product: { include: { type: true } },
@@ -453,7 +452,6 @@ export class TransactionCancellationController {
                               reversals: { is: null },
                             },
                           },
-                          stockAdjustmentItem_originalBatch: true,
                         },
                       },
                     },
@@ -469,13 +467,8 @@ export class TransactionCancellationController {
           const receipt = purchase.receipts[0];
           const batches = receipt.items.map((item) => item.batch);
           if (
-            receipt.items.some((item) => item.returns.length || !item.batch) ||
-            batches.some(
-              (batch) =>
-                !batch ||
-                batch.costAllocations.length ||
-                batch.stockAdjustmentItem_originalBatch.length,
-            )
+            receipt.items.some((item) => !item.batch) ||
+            batches.some((batch) => !batch || batch.costAllocations.length)
           )
             throw new ConflictException(
               "This purchase has stock already used, sold or returned. Reverse the dependent transaction first.",

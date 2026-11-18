@@ -286,7 +286,6 @@ async function restoreSale(tx: Tx, entry: AuditLog, actorId: string) {
       data: {
         saleItemId: unit.saleItemId,
         batteryUnitId: unit.batteryUnitId,
-        batterySetId: unit.batterySetId,
         coverageStart: unit.coverageStart,
         coverageExpiry: unit.coverageExpiry,
         costAtSale: unit.costAtSale,

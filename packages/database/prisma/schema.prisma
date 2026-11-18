@@ -120,8 +120,6 @@ model User {
   roles                               UserRole[]                      @relation("UserRole_user")
   auditLogs                           AuditLog[]                      @relation("AuditLog_actor")
   postings                            Posting[]                       @relation("Posting_actor")
-  purchaseRemainderCancellation_actor PurchaseRemainderCancellation[] @relation("PurchaseRemainderCancellation_actor")
-  inspections                         BatteryInspection[]             @relation("BatteryInspection_inspector")
   idempotencyRecords                  IdempotencyRecord[]             @relation("IdempotencyRecord_actor")
   settingsChanges                     ApplicationSetting[]            @relation("ApplicationSetting_changedBy")
 }
@@ -269,7 +267,6 @@ model Product {
   unit                        String
   active                      Boolean               @default(true)
   defaultSellingPrice         Decimal               @default(0) @db.Decimal(20, 2)
-  defaultPurchasePrice        Decimal?              @db.Decimal(20, 2)
   lowStockThreshold           Decimal               @default(0) @db.Decimal(18, 3)
   version                     Int                   @default(1)
   typeId                      String                @db.Uuid
@@ -284,8 +281,6 @@ model Product {
   batches                     StockBatch[]          @relation("StockBatch_product")
   batteryUnits                BatteryUnit[]         @relation("BatteryUnit_product")
   movements                   StockMovement[]       @relation("StockMovement_product")
-  stockAdjustmentItem_product StockAdjustmentItem[] @relation("StockAdjustmentItem_product")
-  warrantyPolicies            WarrantyPolicy[]      @relation("WarrantyPolicy_product")
   saleItems                   SaleItem[]            @relation("SaleItem_product")
 
   @@index([active, name])
@@ -320,7 +315,6 @@ model Supplier {
   name                String
   company             String?
   phone               String?
-  address             String?
   active              Boolean               @default(true)
   version             Int                   @default(1)
   productTypeId       String?               @db.Uuid
@@ -328,8 +322,6 @@ model Supplier {
   brandId             String?               @db.Uuid
   brand               Brand?                @relation("Supplier_brand", fields: [brandId], references: [id], onDelete: Restrict)
   purchases           Purchase[]            @relation("Purchase_supplier")
-  warrantyPolicies    WarrantyPolicy[]      @relation("WarrantyPolicy_supplier")
-  returns             SupplierReturn[]      @relation("SupplierReturn_supplier")
   replacements        ReplacementRecord[]   @relation("ReplacementRecord_supplier")
   dispatches          ReplacementDispatch[] @relation("ReplacementDispatch_supplier")
   replacementReceipts ReplacementReceipt[]  @relation("ReplacementReceipt_supplier")
@@ -349,47 +341,14 @@ model Customer {
   address               String?
   active                Boolean               @default(true)
   version               Int                   @default(1)
-  vehicles              Vehicle[]             @relation("Vehicle_customer")
-  batterySets           BatterySet[]          @relation("BatterySet_customer")
   reservedUnits         BatteryUnit[]         @relation("BatteryUnit_reservedCustomer")
   sales                 Sale[]                @relation("Sale_customer")
   warrantyClaims        WarrantyClaim[]       @relation("WarrantyClaim_customer")
   replacements          ReplacementRecord[]   @relation("ReplacementRecord_reservedCustomer")
-  replacementDeliveries ReplacementDelivery[] @relation("ReplacementDelivery_customer")
   journalLines          JournalLine[]         @relation("JournalLine_customer")
   payments              Payment[]             @relation("Payment_customer")
 
   @@index([phone])
-}
-
-// Empty compatibility table for older deployed readers. The
-// vehicle_recording_disabled database constraint prevents storing new records.
-model Vehicle {
-  id          String       @id @default(uuid()) @db.Uuid
-  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
-  type        String
-  identifier  String?
-  notes       String?
-  active      Boolean      @default(true)
-  customerId  String       @db.Uuid
-  customer    Customer     @relation("Vehicle_customer", fields: [customerId], references: [id], onDelete: Restrict)
-  batterySets BatterySet[] @relation("BatterySet_vehicle")
-  sales       Sale[]       @relation("Sale_vehicle")
-
-  @@unique([customerId, identifier])
-}
-
-model BatterySet {
-  id         String     @id @default(uuid()) @db.Uuid
-  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt  DateTime   @updatedAt @db.Timestamptz(3)
-  label      String
-  customerId String     @db.Uuid
-  vehicleId  String?    @db.Uuid
-  customer   Customer   @relation("BatterySet_customer", fields: [customerId], references: [id], onDelete: Restrict)
-  vehicle    Vehicle?   @relation("BatterySet_vehicle", fields: [vehicleId], references: [id], onDelete: Restrict)
-  units      SaleUnit[] @relation("SaleUnit_batterySet")
 }
 
 model Posting {
@@ -403,15 +362,11 @@ model Posting {
   actor               User                     @relation("Posting_actor", fields: [actorId], references: [id], onDelete: Restrict)
   purchaseReceipt     PurchaseReceipt?         @relation("PurchaseReceipt_posting")
   movements           StockMovement[]          @relation("StockMovement_posting")
-  stockAdjustment     StockAdjustment?         @relation("StockAdjustment_posting")
   openingBalance      OpeningBalance?          @relation("OpeningBalance_posting")
   sale                Sale?                    @relation("Sale_posting")
   salesReturn         SalesReturn?             @relation("SalesReturn_posting")
-  supplierReturn      SupplierReturn?          @relation("SupplierReturn_posting")
   replacementDispatch ReplacementDispatch?     @relation("ReplacementDispatch_posting")
   replacementReceipt  ReplacementReceipt?      @relation("ReplacementReceipt_posting")
-  replacementDelivery ReplacementDelivery?     @relation("ReplacementDelivery_posting")
-  replacementOutcome  ReplacementOutcomeEvent? @relation("ReplacementOutcomeEvent_posting")
   journal             JournalEntry?            @relation("JournalEntry_posting")
 }
 
@@ -426,12 +381,10 @@ model Purchase {
   discount                               Decimal                         @default(0) @db.Decimal(20, 2)
   additionalCosts                        Decimal                         @default(0) @db.Decimal(20, 2)
   costPlan                               Json                            @default("{}")
-  remainderCancelledAt                   DateTime?                       @db.Timestamptz(3)
   version                                Int                             @default(1)
   supplierId                             String                          @db.Uuid
   supplier                               Supplier                        @relation("Purchase_supplier", fields: [supplierId], references: [id], onDelete: Restrict)
   items                                  PurchaseItem[]                  @relation("PurchaseItem_purchase")
-  purchaseRemainderCancellation_purchase PurchaseRemainderCancellation[] @relation("PurchaseRemainderCancellation_purchase")
   receipts                               PurchaseReceipt[]               @relation("PurchaseReceipt_purchase")
 
   @@index([supplierId, orderDate])
@@ -451,24 +404,9 @@ model PurchaseItem {
   productId                                  String                          @db.Uuid
   purchase                                   Purchase                        @relation("PurchaseItem_purchase", fields: [purchaseId], references: [id], onDelete: Restrict)
   product                                    Product                         @relation("PurchaseItem_product", fields: [productId], references: [id], onDelete: Restrict)
-  purchaseRemainderCancellation_purchaseItem PurchaseRemainderCancellation[] @relation("PurchaseRemainderCancellation_purchaseItem")
   receipts                                   PurchaseReceiptItem[]           @relation("PurchaseReceiptItem_purchaseItem")
 
   @@unique([purchaseId, lineNumber])
-}
-
-model PurchaseRemainderCancellation {
-  id             String       @id @default(uuid()) @db.Uuid
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
-  quantity       Decimal      @db.Decimal(18, 3)
-  reason         String
-  purchaseId     String       @db.Uuid
-  purchaseItemId String       @db.Uuid
-  actorId        String       @db.Uuid
-  purchase       Purchase     @relation("PurchaseRemainderCancellation_purchase", fields: [purchaseId], references: [id], onDelete: Restrict)
-  purchaseItem   PurchaseItem @relation("PurchaseRemainderCancellation_purchaseItem", fields: [purchaseItemId], references: [id], onDelete: Restrict)
-  actor          User         @relation("PurchaseRemainderCancellation_actor", fields: [actorId], references: [id], onDelete: Restrict)
 }
 
 model PurchaseReceipt {
@@ -499,7 +437,6 @@ model PurchaseReceiptItem {
   receipt        PurchaseReceipt      @relation("PurchaseReceiptItem_receipt", fields: [receiptId], references: [id], onDelete: Restrict)
   purchaseItem   PurchaseItem         @relation("PurchaseReceiptItem_purchaseItem", fields: [purchaseItemId], references: [id], onDelete: Restrict)
   batch          StockBatch?          @relation("StockBatch_receiptItem")
-  returns        SupplierReturnItem[] @relation("SupplierReturnItem_receiptItem")
 
   @@unique([receiptId, purchaseItemId])
 }
@@ -516,18 +453,15 @@ model StockBatch {
   receiptItemId                     String?                 @unique @db.Uuid
   replacementReceiptItemId          String?                 @unique @db.Uuid
   openingItemId                     String?                 @unique @db.Uuid
-  adjustmentItemId                  String?                 @unique @db.Uuid
   returnItemId                      String?                 @unique @db.Uuid
   product                           Product                 @relation("StockBatch_product", fields: [productId], references: [id], onDelete: Restrict)
   receiptItem                       PurchaseReceiptItem?    @relation("StockBatch_receiptItem", fields: [receiptItemId], references: [id], onDelete: Restrict)
   replacementReceiptItem            ReplacementReceiptItem? @relation("StockBatch_replacementReceiptItem", fields: [replacementReceiptItemId], references: [id], onDelete: Restrict)
   openingItem                       OpeningBalanceItem?     @relation("StockBatch_openingItem", fields: [openingItemId], references: [id], onDelete: Restrict)
-  adjustmentItem                    StockAdjustmentItem?    @relation("StockBatch_adjustmentItem", fields: [adjustmentItemId], references: [id], onDelete: Restrict)
   returnItem                        SalesReturnItem?        @relation("StockBatch_returnItem", fields: [returnItemId], references: [id], onDelete: Restrict)
   batteryUnits                      BatteryUnit[]           @relation("BatteryUnit_batch")
   balances                          InventoryBalance[]      @relation("InventoryBalance_batch")
   movements                         StockMovement[]         @relation("StockMovement_batch")
-  stockAdjustmentItem_originalBatch StockAdjustmentItem[]   @relation("StockAdjustmentItem_originalBatch")
   costAllocations                   CostAllocation[]        @relation("CostAllocation_batch")
 
   @@index([productId, acquiredAt])
@@ -556,18 +490,14 @@ model BatteryUnit {
   reservedCustomer                Customer?                @relation("BatteryUnit_reservedCustomer", fields: [reservedCustomerId], references: [id], onDelete: Restrict)
   reservedReplacement             ReplacementRecord?       @relation("BatteryUnit_reservedReplacement", fields: [reservedReplacementId], references: [id], onDelete: Restrict)
   movements                       StockMovement[]          @relation("StockMovement_batteryUnit")
-  stockAdjustmentItem_batteryUnit StockAdjustmentItem[]    @relation("StockAdjustmentItem_batteryUnit")
   saleHistory                     SaleUnit[]               @relation("SaleUnit_batteryUnit")
   costAllocations                 CostAllocation[]         @relation("CostAllocation_batteryUnit")
   salesReturnItem_batteryUnit     SalesReturnItem[]        @relation("SalesReturnItem_batteryUnit")
-  supplierReturnItem_batteryUnit  SupplierReturnItem[]     @relation("SupplierReturnItem_batteryUnit")
   warrantyClaims                  WarrantyClaim[]          @relation("WarrantyClaim_faultyUnit")
   replacementCases                ReplacementRecord[]      @relation("ReplacementRecord_oldUnit")
-  inspections                     BatteryInspection[]      @relation("BatteryInspection_batteryUnit")
   dispatchItem_oldUnit            DispatchItem[]           @relation("DispatchItem_oldUnit")
   replacedBy                      ReplacementReceiptItem[] @relation("ReplacementReceiptItem_oldUnit")
   replacementOrigin               ReplacementReceiptItem?  @relation("ReplacementReceiptItem_newUnit")
-  delivery                        ReplacementDelivery?     @relation("ReplacementDelivery_newUnit")
 
   @@unique([productId, normalizedSerial])
   @@index([productionDate])
@@ -621,37 +551,6 @@ model StockMovement {
   @@index([batchId, occurredAt])
 }
 
-model StockAdjustment {
-  id        String                @id @default(uuid()) @db.Uuid
-  createdAt DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime              @updatedAt @db.Timestamptz(3)
-  number    String                @unique
-  reason    String
-  postedAt  DateTime              @default(now()) @db.Timestamptz(3)
-  postingId String                @unique @db.Uuid
-  posting   Posting               @relation("StockAdjustment_posting", fields: [postingId], references: [id], onDelete: Restrict)
-  items     StockAdjustmentItem[] @relation("StockAdjustmentItem_adjustment")
-}
-
-model StockAdjustmentItem {
-  id              String           @id @default(uuid()) @db.Uuid
-  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
-  quantity        Decimal          @db.Decimal(18, 3)
-  fromState       CommercialState?
-  toState         CommercialState
-  valuationImpact Decimal          @default(0) @db.Decimal(20, 2)
-  adjustmentId    String           @db.Uuid
-  productId       String           @db.Uuid
-  batteryUnitId   String?          @db.Uuid
-  originalBatchId String?          @db.Uuid
-  batch           StockBatch?      @relation("StockBatch_adjustmentItem")
-  adjustment      StockAdjustment  @relation("StockAdjustmentItem_adjustment", fields: [adjustmentId], references: [id], onDelete: Restrict)
-  product         Product          @relation("StockAdjustmentItem_product", fields: [productId], references: [id], onDelete: Restrict)
-  batteryUnit     BatteryUnit?     @relation("StockAdjustmentItem_batteryUnit", fields: [batteryUnitId], references: [id], onDelete: Restrict)
-  originalBatch   StockBatch?      @relation("StockAdjustmentItem_originalBatch", fields: [originalBatchId], references: [id], onDelete: Restrict)
-}
-
 model OpeningBalance {
   id                      String               @id @default(uuid()) @db.Uuid
   createdAt               DateTime             @default(now()) @db.Timestamptz(3)
@@ -676,25 +575,6 @@ model OpeningBalanceItem {
   opening          OpeningBalance @relation("OpeningBalanceItem_opening", fields: [openingId], references: [id], onDelete: Restrict)
 }
 
-model WarrantyPolicy {
-  id                     String    @id @default(uuid()) @db.Uuid
-  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
-  code                   String
-  version                Int
-  name                   String
-  months                 Int
-  preserveOriginalExpiry Boolean   @default(true)
-  rules                  Json      @default("{}")
-  active                 Boolean   @default(true)
-  supplierId             String?   @db.Uuid
-  productId              String?   @db.Uuid
-  supplier               Supplier? @relation("WarrantyPolicy_supplier", fields: [supplierId], references: [id], onDelete: Restrict)
-  product                Product?  @relation("WarrantyPolicy_product", fields: [productId], references: [id], onDelete: Restrict)
-
-  @@unique([code, version])
-}
-
 model Sale {
   id                 String              @id @default(uuid()) @db.Uuid
   createdAt          DateTime            @default(now()) @db.Timestamptz(3)
@@ -708,10 +588,8 @@ model Sale {
   invoiceSnapshot    Json?
   version            Int                 @default(1)
   customerId         String              @db.Uuid
-  vehicleId          String?             @db.Uuid
   postingId          String?             @unique @db.Uuid
   customer           Customer            @relation("Sale_customer", fields: [customerId], references: [id], onDelete: Restrict)
-  vehicle            Vehicle?            @relation("Sale_vehicle", fields: [vehicleId], references: [id], onDelete: Restrict)
   posting            Posting?            @relation("Sale_posting", fields: [postingId], references: [id], onDelete: Restrict)
   items              SaleItem[]          @relation("SaleItem_sale")
   returns            SalesReturn[]       @relation("SalesReturn_sale")
@@ -753,10 +631,8 @@ model SaleUnit {
   releasedAt     DateTime?       @db.Timestamptz(3)
   saleItemId     String          @db.Uuid
   batteryUnitId  String          @db.Uuid
-  batterySetId   String?         @db.Uuid
   saleItem       SaleItem        @relation("SaleUnit_saleItem", fields: [saleItemId], references: [id], onDelete: Restrict)
   batteryUnit    BatteryUnit     @relation("SaleUnit_batteryUnit", fields: [batteryUnitId], references: [id], onDelete: Restrict)
-  batterySet     BatterySet?     @relation("SaleUnit_batterySet", fields: [batterySetId], references: [id], onDelete: Restrict)
   warrantyClaims WarrantyClaim[] @relation("WarrantyClaim_saleUnit")
 }
 
@@ -813,34 +689,6 @@ model SalesReturnItem {
   costAllocation   CostAllocation  @relation("SalesReturnItem_costAllocation", fields: [costAllocationId], references: [id], onDelete: Restrict)
 }
 
-model SupplierReturn {
-  id           String               @id @default(uuid()) @db.Uuid
-  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
-  number       String               @unique
-  reason       String
-  creditAmount Decimal              @default(0) @db.Decimal(20, 2)
-  supplierId   String               @db.Uuid
-  postingId    String               @unique @db.Uuid
-  supplier     Supplier             @relation("SupplierReturn_supplier", fields: [supplierId], references: [id], onDelete: Restrict)
-  posting      Posting              @relation("SupplierReturn_posting", fields: [postingId], references: [id], onDelete: Restrict)
-  items        SupplierReturnItem[] @relation("SupplierReturnItem_return")
-}
-
-model SupplierReturnItem {
-  id            String              @id @default(uuid()) @db.Uuid
-  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
-  quantity      Decimal             @db.Decimal(18, 3)
-  carryingCost  Decimal             @default(0) @db.Decimal(20, 6)
-  returnId      String              @db.Uuid
-  receiptItemId String              @db.Uuid
-  batteryUnitId String?             @db.Uuid
-  return        SupplierReturn      @relation("SupplierReturnItem_return", fields: [returnId], references: [id], onDelete: Restrict)
-  receiptItem   PurchaseReceiptItem @relation("SupplierReturnItem_receiptItem", fields: [receiptItemId], references: [id], onDelete: Restrict)
-  batteryUnit   BatteryUnit?        @relation("SupplierReturnItem_batteryUnit", fields: [batteryUnitId], references: [id], onDelete: Restrict)
-}
-
 model WarrantyClaim {
   id                String             @id @default(uuid()) @db.Uuid
   createdAt         DateTime           @default(now()) @db.Timestamptz(3)
@@ -883,30 +731,10 @@ model ReplacementRecord {
   warrantyClaim      WarrantyClaim?            @relation("ReplacementRecord_warrantyClaim", fields: [warrantyClaimId], references: [id], onDelete: Restrict)
   supplier           Supplier                  @relation("ReplacementRecord_supplier", fields: [supplierId], references: [id], onDelete: Restrict)
   reservedCustomer   Customer?                 @relation("ReplacementRecord_reservedCustomer", fields: [reservedCustomerId], references: [id], onDelete: Restrict)
-  inspections        BatteryInspection[]       @relation("BatteryInspection_replacement")
   dispatchItems      DispatchItem[]            @relation("DispatchItem_replacement")
   receiptItem        ReplacementReceiptItem?   @relation("ReplacementReceiptItem_replacement")
-  delivery           ReplacementDelivery?      @relation("ReplacementDelivery_replacement")
-  outcomeEvents      ReplacementOutcomeEvent[] @relation("ReplacementOutcomeEvent_replacement")
-  charges            ReplacementCharge[]       @relation("ReplacementCharge_replacement")
 
   @@index([status, supplierId, createdAt])
-}
-
-model BatteryInspection {
-  id            String            @id @default(uuid()) @db.Uuid
-  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
-  findings      String
-  result        String
-  testReadings  Json              @default("{}")
-  inspectedAt   DateTime          @default(now()) @db.Timestamptz(3)
-  replacementId String            @db.Uuid
-  batteryUnitId String            @db.Uuid
-  inspectorId   String            @db.Uuid
-  replacement   ReplacementRecord @relation("BatteryInspection_replacement", fields: [replacementId], references: [id], onDelete: Restrict)
-  batteryUnit   BatteryUnit       @relation("BatteryInspection_batteryUnit", fields: [batteryUnitId], references: [id], onDelete: Restrict)
-  inspector     User              @relation("BatteryInspection_inspector", fields: [inspectorId], references: [id], onDelete: Restrict)
 }
 
 model ReplacementDispatch {
@@ -972,37 +800,6 @@ model ReplacementReceiptItem {
   newUnit           BatteryUnit        @relation("ReplacementReceiptItem_newUnit", fields: [newUnitId], references: [id], onDelete: Restrict)
 }
 
-model ReplacementDelivery {
-  id            String            @id @default(uuid()) @db.Uuid
-  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
-  number        String            @unique
-  deliveredAt   DateTime          @db.Timestamptz(3)
-  recipient     String
-  snapshot      Json
-  replacementId String            @unique @db.Uuid
-  customerId    String            @db.Uuid
-  newUnitId     String            @unique @db.Uuid
-  postingId     String            @unique @db.Uuid
-  replacement   ReplacementRecord @relation("ReplacementDelivery_replacement", fields: [replacementId], references: [id], onDelete: Restrict)
-  customer      Customer          @relation("ReplacementDelivery_customer", fields: [customerId], references: [id], onDelete: Restrict)
-  newUnit       BatteryUnit       @relation("ReplacementDelivery_newUnit", fields: [newUnitId], references: [id], onDelete: Restrict)
-  posting       Posting           @relation("ReplacementDelivery_posting", fields: [postingId], references: [id], onDelete: Restrict)
-}
-
-model ReplacementOutcomeEvent {
-  id            String            @id @default(uuid()) @db.Uuid
-  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
-  kind          String
-  reason        String
-  details       Json
-  replacementId String            @db.Uuid
-  postingId     String            @unique @db.Uuid
-  replacement   ReplacementRecord @relation("ReplacementOutcomeEvent_replacement", fields: [replacementId], references: [id], onDelete: Restrict)
-  posting       Posting           @relation("ReplacementOutcomeEvent_posting", fields: [postingId], references: [id], onDelete: Restrict)
-}
-
 model Account {
   id                 String              @id @default(uuid()) @db.Uuid
   createdAt          DateTime            @default(now()) @db.Timestamptz(3)
@@ -1033,7 +830,6 @@ model JournalEntry {
   payment           Payment?           @relation("Payment_journal")
   expense           Expense?           @relation("Expense_journal")
   expenseSettlement ExpenseSettlement? @relation("ExpenseSettlement_journal")
-  replacementCharge ReplacementCharge? @relation("ReplacementCharge_journal")
 }
 
 model JournalLine {
@@ -1143,20 +939,6 @@ model ExpenseSettlement {
   reversal             ExpenseSettlement? @relation("ExpenseSettlement_reversedSettlement")
 }
 
-model ReplacementCharge {
-  id            String            @id @default(uuid()) @db.Uuid
-  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
-  kind          String
-  treatment     String
-  payer         String
-  amount        Decimal           @db.Decimal(20, 2)
-  replacementId String            @db.Uuid
-  journalId     String?           @unique @db.Uuid
-  replacement   ReplacementRecord @relation("ReplacementCharge_replacement", fields: [replacementId], references: [id], onDelete: Restrict)
-  journal       JournalEntry?     @relation("ReplacementCharge_journal", fields: [journalId], references: [id], onDelete: Restrict)
-}
-
 model IdempotencyRecord {
   id             String   @id @default(uuid()) @db.Uuid
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
@@ -1182,30 +964,4 @@ model ApplicationSetting {
   value       Json
   changedById String   @db.Uuid
   changedBy   User     @relation("ApplicationSetting_changedBy", fields: [changedById], references: [id], onDelete: Restrict)
-}
-
-model DocumentSnapshot {
-  id          String   @id @default(uuid()) @db.Uuid
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
-  sourceType  String
-  sourceId    String   @db.Uuid
-  kind        String
-  version     Int
-  snapshot    Json
-  artifactKey String?
-  checksum    String?
-
-  @@unique([sourceType, sourceId, kind, version])
-}
-
-model OutboxEvent {
-  id            String   @id @default(uuid()) @db.Uuid
-  createdAt     DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
-  type          String
-  payload       Json
-  status        String   @default("PENDING")
-  attempts      Int      @default(0)
-  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
 }

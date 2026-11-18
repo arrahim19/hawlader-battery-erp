@@ -29,7 +29,7 @@ export const childNavigation: Record<
     { label: "Add Supplier", view: "new" },
     { label: "Company / Brands", view: "groups" },
     { label: "Supplier Dues", view: "credit" },
-    { label: "Supplier Ledger", view: "ledger" },
+    { label: "Ledger", view: "ledger" },
   ],
   accounts: [
     { label: "Account Summary", view: "summary" },

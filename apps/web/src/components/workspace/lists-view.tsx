@@ -290,38 +290,36 @@ export function CustomerView({
           },
           {
             id: "ledger",
-            label: supplier ? "Supplier Ledger" : "Customer Ledger",
+            label: supplier ? "Ledger" : "Customer Ledger",
             icon: ClipboardList,
           },
-        ]}
+        ].filter(
+          (item) => !supplier || !["groups", "credit"].includes(item.id),
+        )}
       />
-      <div className="erp-stats">
-        <StatCard
-          label={supplier ? "Total Suppliers" : "Total Customers"}
-          value={
-            preview || !data
-              ? "—"
-              : String(supplier ? data.counts.suppliers : data.counts.customers)
-          }
-          icon={supplier ? Truck : Users}
-        />
-        <StatCard
-          label={supplier ? "Active Suppliers" : "Active Customers"}
-          value={
-            preview || !data
-              ? "—"
-              : String(supplier ? data.counts.suppliers : data.counts.customers)
-          }
-          icon={UserRoundCheck}
-          tone="blue"
-        />
-        <StatCard
-          label={supplier ? "Outstanding Accounts" : "Credit Customers"}
-          value="—"
-          caption="অ্যাকাউন্ট লেজার যুক্ত হলে দেখাবে"
-          icon={CreditCard}
-          tone="orange"
-        />
+      <div className={supplier ? "erp-stats supplier-stats" : "erp-stats"}>
+        {!supplier ? (
+          <>
+            <StatCard
+              label="Total Customers"
+              value={preview || !data ? "—" : String(data.counts.customers)}
+              icon={Users}
+            />
+            <StatCard
+              label="Active Customers"
+              value={preview || !data ? "—" : String(data.counts.customers)}
+              icon={UserRoundCheck}
+              tone="blue"
+            />
+            <StatCard
+              label="Credit Customers"
+              value="—"
+              caption="অ্যাকাউন্ট লেজার যুক্ত হলে দেখাবে"
+              icon={CreditCard}
+              tone="orange"
+            />
+          </>
+        ) : null}
         <StatCard
           label={supplier ? "Total Payable" : "Total Receivable"}
           value={money(
@@ -331,7 +329,7 @@ export function CustomerView({
                 ? data?.financials?.supplierDues
                 : data?.financials?.customerDues,
           )}
-          caption="সকল সময়ের বকেয়া"
+          caption={supplier ? undefined : "সকল সময়ের বকেয়া"}
           icon={ShieldCheck}
           tone="purple"
         />
@@ -392,13 +390,11 @@ export function CustomerView({
                   supplier
                     ? [
                         "#",
-                        "সাপ্লায়ার কোড",
+                        "নাম",
                         "কোম্পানি / নাম",
                         "মোবাইল নম্বর",
                         "ক্রয়",
                         "বকেয়া",
-                        "স্ট্যাটাস",
-                        "অ্যাকশন",
                       ]
                     : [
                         "#",
@@ -422,15 +418,19 @@ export function CustomerView({
             </Panel>
             <DetailPanel
               title={supplier ? "সাপ্লায়ারের বিস্তারিত" : "কাস্টমার বিস্তারিত"}
-              rows={[
-                "নাম",
-                "কোড",
-                "মোবাইল",
-                "গ্রুপ",
-                "ক্রেডিট লিমিট",
-                "বকেয়া",
-                "স্থিতি",
-              ]}
+              rows={
+                supplier
+                  ? ["নাম", "মোবাইল", "ক্রেডিট লিমিট", "বকেয়া", "স্থিতি"]
+                  : [
+                      "নাম",
+                      "কোড",
+                      "মোবাইল",
+                      "গ্রুপ",
+                      "ক্রেডিট লিমিট",
+                      "বকেয়া",
+                      "স্থিতি",
+                    ]
+              }
               footer={
                 <DesignAction variant="outline" icon={ClipboardList}>
                   লেজার দেখুন

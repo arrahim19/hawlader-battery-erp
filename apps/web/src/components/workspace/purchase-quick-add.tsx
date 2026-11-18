@@ -57,7 +57,6 @@ export function PurchaseQuickAdd({
             name: text("name"),
             phone: text("phone"),
             company: text("company"),
-            address: text("address"),
           },
         );
         onSupplierSaved(created);
@@ -120,9 +119,6 @@ export function PurchaseQuickAdd({
                   </Field>
                   <Field label="Company / Brand">
                     <input name="company" maxLength={160} />
-                  </Field>
-                  <Field label="Address">
-                    <textarea name="address" maxLength={500} rows={2} />
                   </Field>
                 </>
               ) : null}

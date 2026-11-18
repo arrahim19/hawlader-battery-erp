@@ -26,6 +26,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -50,7 +51,7 @@ class ReceiveItemDto {
 class ReceivePurchaseDto {
   @IsUUID() supplierId!: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) purchaseDate!: string;
-  @Transform(trim) @IsOptional() @IsString() @MaxLength(160) reference?: string;
+  @Transform(trim) @IsString() @IsNotEmpty() @MaxLength(160) reference!: string;
   @Transform(trim) @IsOptional() @IsString() @MaxLength(2000) notes?: string;
   @IsArray()
   @ArrayMinSize(1)

@@ -12,7 +12,6 @@ test("supplier edits persist, cancellation makes no delete, and transaction erro
     name: "Original Supplier",
     phone: "01712345678",
     company: "Original Company",
-    address: "Dhaka",
     active: true,
     productTypeId: category.id,
     productType: category,
@@ -63,7 +62,6 @@ test("supplier edits persist, cancellation makes no delete, and transaction erro
         total: removed ? 0 : 1,
         page: 1,
         pageSize: 10,
-        summary: { total: removed ? 0 : 1, active: removed ? 0 : 1 },
       });
     return route.abort();
   });
@@ -74,6 +72,7 @@ test("supplier edits persist, cancellation makes no delete, and transaction erro
   await expect(page.getByLabel("Supplier name", { exact: true })).toHaveValue(
     "Original Supplier",
   );
+  await expect(page.locator('[name="address"]')).toHaveCount(0);
   await expect(
     page.getByLabel("Supplier product category", { exact: true }),
   ).toHaveValue(category.id);
@@ -111,6 +110,6 @@ test("supplier edits persist, cancellation makes no delete, and transaction erro
     page.getByRole("button", { name: "Edit Updated Supplier", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("0 suppliers · Page 1 of 1", { exact: true }),
+    page.getByText("Page 1 of 1", { exact: true }),
   ).toBeVisible();
 });

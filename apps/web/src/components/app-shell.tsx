@@ -101,6 +101,13 @@ export const navigation = [
     permission: "settings.manage",
   },
 ];
+const quickAccessLabels: Record<string, string> = {
+  "/inventory": "Inventory",
+  "/purchases": "Purchase",
+  "/sales": "Sales",
+  "/customers": "Customer",
+  "/dashboard": "Dashboard",
+};
 function BrandMark() {
   return (
     <svg viewBox="0 0 56 48" aria-hidden="true">
@@ -163,6 +170,9 @@ export function AppShell({
         )),
   );
   const displayName = preview ? "Admin" : (user?.name ?? "Account");
+  const quickAccess = Object.keys(quickAccessLabels).flatMap((href) =>
+    visible.filter((item) => item.href === href),
+  );
   const initials = preview
     ? "AD"
     : displayName
@@ -253,6 +263,7 @@ export function AppShell({
     <div
       className={cn(
         "app-shell",
+        quickAccess.length > 0 && "has-quick-access",
         current === "dashboard" && "dashboard-shell",
         current === "purchases" && "purchase-shell",
         current === "accounts" && "accounts-shell",
@@ -417,6 +428,30 @@ export function AppShell({
             {children}
           </div>
         </main>
+        {quickAccess.length > 0 ? (
+          <nav
+            aria-label="Quick access"
+            className="mobile-quick-access"
+            inert={!preview && !user}
+          >
+            {quickAccess.map((item) => {
+              const moduleId = item.href.slice(1);
+              const active = moduleId === current;
+              return (
+                <Link
+                  key={item.href}
+                  href={workspaceHref(moduleId, "", preview)}
+                  prefetch={true}
+                  className={cn("quick-access-link", active && "active")}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <item.icon size={21} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{quickAccessLabels[item.href]}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        ) : null}
       </div>
     </div>
   );

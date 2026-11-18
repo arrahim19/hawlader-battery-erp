@@ -12,7 +12,6 @@ export interface SupplierRecord {
   name: string;
   company: string | null;
   phone: string | null;
-  address: string | null;
   active: boolean;
   createdAt: string;
 }
@@ -21,7 +20,29 @@ export interface SupplierList {
   total: number;
   page: number;
   pageSize: number;
-  summary: { total: number; active: number };
+}
+export interface SupplierLedgerRecord extends SupplierRecord {
+  totalPurchases: string;
+  due: string;
+}
+export interface SupplierLedgerList {
+  items: SupplierLedgerRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: { totalPurchases: string; totalDue: string };
+}
+export interface SupplierLedger {
+  supplier: SupplierLedgerRecord;
+  items: {
+    id: string;
+    date: string;
+    reference: string;
+    description: string;
+    debit: string;
+    credit: string;
+    balance: string;
+  }[];
 }
 export interface CustomerRecord {
   id: string;
@@ -68,6 +89,23 @@ export interface CustomerSalesHistory {
       unitPrice: string;
       amount: string;
     }[];
+  }[];
+}
+export interface CustomerLedger {
+  customer: CustomerRecord;
+  from: string | null;
+  to: string | null;
+  summary: { opening: string; debit: string; credit: string; closing: string };
+  paymentAccounts: { id: string; name: string }[];
+  items: {
+    id: string;
+    date: string;
+    reference: string;
+    description: string;
+    kind: "sale" | "payment" | "return" | "reversal" | "adjustment";
+    debit: string;
+    credit: string;
+    balance: string;
   }[];
 }
 export type ProductTrackingKind = "BATTERY_UNIT" | "QUANTITY";
@@ -299,7 +337,6 @@ export interface DashboardData {
   counts: {
     products: number;
     customers: number;
-    suppliers: number;
     availableStock: string;
     pendingReplacements: number;
     sentToCompany: number;

@@ -38,6 +38,10 @@ import {
 } from "./product-categories";
 
 import { lockBinEntry } from "./recycle-state";
+import type {
+  SupplierLedger,
+  SupplierLedgerRecord,
+} from "../../../packages/api-client/src";
 
 const trimmed = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
@@ -64,15 +68,13 @@ class CreateSupplierDto extends SupplierCategoryDto {
   @IsString()
   @MaxLength(160)
   company?: string | null;
-
-  @Transform(trimmed)
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  address?: string | null;
 }
 
 class SupplierQueryDto {
+  @IsOptional()
+  @IsUUID()
+  productTypeId?: string;
+
   @Transform(trimmed)
   @IsOptional()
   @IsString()
@@ -107,10 +109,79 @@ const contactFields = {
   name: true,
   company: true,
   phone: true,
-  address: true,
   active: true,
   createdAt: true,
 } as const;
+
+function supplierWhere(query: SupplierQueryDto): Prisma.SupplierWhereInput {
+  return {
+    ...(query.productTypeId ? { productTypeId: query.productTypeId } : {}),
+    ...(query.status === "all" ? {} : { active: query.status === "active" }),
+    ...(query.q
+      ? {
+          OR: ["name", "company", "phone"].map((field) => ({
+            [field]: { contains: query.q, mode: "insensitive" },
+          })),
+        }
+      : {}),
+  };
+}
+
+async function supplierBalances(
+  tx: Prisma.TransactionClient,
+  where: Prisma.SupplierWhereInput,
+) {
+  const [purchases, balances] = await Promise.all([
+    tx.journalLine.groupBy({
+      by: ["supplierId"],
+      where: {
+        supplier: where,
+        account: { code: "2100" },
+        entry: {
+          posting: {
+            purchaseReceipt: {
+              purchase: { status: { in: ["RECEIVED", "PARTIALLY_RECEIVED"] } },
+            },
+          },
+        },
+      },
+      _sum: { credit: true },
+    }),
+    tx.journalLine.groupBy({
+      by: ["supplierId"],
+      where: { supplier: where, account: { code: "2100" } },
+      _sum: { debit: true, credit: true },
+    }),
+  ]);
+  return {
+    purchases: new Map(
+      purchases.map((row) => [
+        row.supplierId,
+        row._sum.credit ?? new Prisma.Decimal(0),
+      ]),
+    ),
+    dues: new Map(
+      balances.map((row) => [
+        row.supplierId,
+        (row._sum.credit ?? new Prisma.Decimal(0)).sub(row._sum.debit ?? 0),
+      ]),
+    ),
+  };
+}
+
+function supplierLedgerRecord(
+  row: Prisma.SupplierGetPayload<{ select: typeof contactFields }>,
+  balances: Awaited<ReturnType<typeof supplierBalances>>,
+): SupplierLedgerRecord {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    totalPurchases: (
+      balances.purchases.get(row.id) ?? new Prisma.Decimal(0)
+    ).toFixed(2),
+    due: (balances.dues.get(row.id) ?? new Prisma.Decimal(0)).toFixed(2),
+  };
+}
 
 @Controller("suppliers")
 @Permissions("parties.suppliers")
@@ -126,6 +197,132 @@ export class SuppliersController {
     return {
       data: orderProductCategories(types).map(({ id, name }) => ({ id, name })),
     };
+  }
+
+  @Get("ledger")
+  @Permissions("parties.suppliers", "finance.read")
+  async ledgerList(
+    @Query(
+      new ValidationPipe({
+        expectedType: SupplierQueryDto,
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    )
+    query: SupplierQueryDto,
+  ) {
+    return this.db.$transaction(
+      async (tx) => {
+        const where = supplierWhere(query);
+        const [rows, total, balances] = await Promise.all([
+          tx.supplier.findMany({
+            where,
+            select: contactFields,
+            orderBy: [{ name: "asc" }, { id: "asc" }],
+            skip: (query.page - 1) * query.pageSize,
+            take: query.pageSize,
+          }),
+          tx.supplier.count({ where }),
+          supplierBalances(tx, where),
+        ]);
+        return {
+          data: {
+            items: rows.map((row) => supplierLedgerRecord(row, balances)),
+            total,
+            page: query.page,
+            pageSize: query.pageSize,
+            summary: {
+              totalPurchases: [...balances.purchases.values()]
+                .reduce((sum, value) => sum.add(value), new Prisma.Decimal(0))
+                .toFixed(2),
+              totalDue: [...balances.dues.values()]
+                .reduce(
+                  (sum, value) => sum.add(Prisma.Decimal.max(0, value)),
+                  new Prisma.Decimal(0),
+                )
+                .toFixed(2),
+            },
+          },
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  @Get(":id/ledger")
+  @Permissions("parties.suppliers", "finance.read")
+  async ledger(
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<{ data: SupplierLedger }> {
+    return this.db.$transaction(
+      async (tx) => {
+        const supplier = await tx.supplier.findUnique({
+          where: { id },
+          select: contactFields,
+        });
+        if (!supplier) throw new NotFoundException("Supplier not found.");
+        const [balances, lines] = await Promise.all([
+          supplierBalances(tx, { id }),
+          tx.journalLine.findMany({
+            where: { supplierId: id, account: { code: "2100" } },
+            select: {
+              id: true,
+              debit: true,
+              credit: true,
+              entry: {
+                select: {
+                  postedAt: true,
+                  reason: true,
+                  payment: { select: { number: true, reference: true } },
+                  posting: {
+                    select: {
+                      purchaseReceipt: {
+                        select: {
+                          purchase: {
+                            select: { number: true, supplierReference: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: [
+              { entry: { postedAt: "asc" } },
+              { entry: { createdAt: "asc" } },
+              { credit: "desc" },
+              { entryId: "asc" },
+              { id: "asc" },
+            ],
+          }),
+        ]);
+        let balance = new Prisma.Decimal(0);
+        const items = lines.map((line) => {
+          balance = balance.add(line.credit).sub(line.debit);
+          const purchase = line.entry.posting.purchaseReceipt?.purchase;
+          return {
+            id: line.id,
+            date: line.entry.postedAt.toISOString(),
+            reference:
+              purchase?.supplierReference ||
+              purchase?.number ||
+              line.entry.payment?.reference ||
+              line.entry.payment?.number ||
+              "—",
+            description: line.entry.reason ?? "হিসাব সমন্বয়",
+            debit: line.debit.toFixed(2),
+            credit: line.credit.toFixed(2),
+            balance: balance.toFixed(2),
+          };
+        });
+        return {
+          data: { supplier: supplierLedgerRecord(supplier, balances), items },
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   @Get("recycle-bin")
@@ -257,36 +454,23 @@ export class SuppliersController {
     )
     query: SupplierQueryDto,
   ) {
-    const where: Prisma.SupplierWhereInput = {
-      ...(query.status === "all" ? {} : { active: query.status === "active" }),
-      ...(query.q
-        ? {
-            OR: ["name", "company", "phone", "address"].map((field) => ({
-              [field]: { contains: query.q, mode: "insensitive" },
-            })),
-          }
-        : {}),
-    };
-    const [items, total, totalSuppliers, activeSuppliers] =
-      await this.db.$transaction([
-        this.db.supplier.findMany({
-          where,
-          select: contactFields,
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          skip: (query.page - 1) * query.pageSize,
-          take: query.pageSize,
-        }),
-        this.db.supplier.count({ where }),
-        this.db.supplier.count(),
-        this.db.supplier.count({ where: { active: true } }),
-      ]);
+    const where = supplierWhere(query);
+    const [items, total] = await this.db.$transaction([
+      this.db.supplier.findMany({
+        where,
+        select: contactFields,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.db.supplier.count({ where }),
+    ]);
     return {
       data: {
         items,
         total,
         page: query.page,
         pageSize: query.pageSize,
-        summary: { total: totalSuppliers, active: activeSuppliers },
       },
     };
   }
@@ -320,7 +504,6 @@ export class SuppliersController {
           name: body.name,
           phone: body.phone,
           company: body.company || null,
-          address: body.address || null,
         },
         select: contactFields,
       });
@@ -371,7 +554,6 @@ export class SuppliersController {
           name: body.name,
           phone: body.phone,
           company: body.company || null,
-          address: body.address || null,
         },
         select: contactFields,
       });
@@ -453,7 +635,6 @@ export async function restoreDeletedSupplier(
     name: string;
     company: string | null;
     phone: string | null;
-    address: string | null;
     active: boolean;
     productTypeId: string | null;
     brandId: string | null;
@@ -482,7 +663,6 @@ export async function restoreDeletedSupplier(
       name: snapshot.name,
       company: snapshot.company,
       phone: snapshot.phone,
-      address: snapshot.address,
       active: snapshot.active,
       productTypeId: snapshot.productTypeId,
       brandId: snapshot.brandId,

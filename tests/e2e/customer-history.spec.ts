@@ -130,8 +130,11 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
   await first.click();
   const dialog = page.getByRole("dialog");
   await expect(
-    dialog.getByRole("heading", { name: "Customer Details — Customer One" }),
+    dialog.getByRole("heading", { name: "Customer Details", exact: true }),
   ).toBeVisible();
+  await expect(dialog.locator(".customer-history-heading > p")).toHaveText(
+    "Customer One",
+  );
   await expect(dialog.getByRole("alert")).toContainText(
     "History temporarily unavailable",
   );
@@ -142,20 +145,20 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
   ).toBeVisible();
   await expect(dialog.locator("time")).toHaveText("17 Nov 2026");
   await expect(
-    dialog.getByRole("cell", { name: "Auto Life", exact: true }),
+    dialog.locator("td").filter({ hasText: "Auto Life" }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("cell", { name: "Battery Cable", exact: true }),
+    dialog.locator("td").filter({ hasText: "Battery Cable" }),
   ).toBeVisible();
   await expect(
     dialog.getByRole("cell", { name: "2 piece", exact: true }),
   ).toBeVisible();
   await expect(
-    dialog
-      .getByRole("row")
-      .filter({ hasText: "Invoice Total:" })
-      .getByRole("cell", { name: "৳250.00", exact: true }),
+    dialog.locator(".customer-history-invoice-total strong"),
   ).toBeVisible();
+  await expect(
+    dialog.locator(".customer-history-invoice-total strong"),
+  ).toHaveText("৳250.00");
   const bounds = await dialog.boundingBox();
   expect(bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await page.screenshot({
@@ -166,7 +169,7 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
     dialog.getByRole("heading", { name: "HWB-000002" }),
   ).toBeVisible();
   await expect(
-    dialog.getByText("Earlier Battery", { exact: true }),
+    dialog.locator("td").filter({ hasText: "Earlier Battery" }),
   ).toBeVisible();
   await expect(
     dialog.getByRole("button", { name: "Next", exact: true }),
@@ -180,8 +183,11 @@ test("Details organizes the selected customer's sales by dated invoice and suppo
     .getByRole("button", { name: "Details", exact: true })
     .click();
   await expect(
-    dialog.getByRole("heading", { name: "Customer Details — Customer Two" }),
+    dialog.getByRole("heading", { name: "Customer Details", exact: true }),
   ).toBeVisible();
+  await expect(dialog.locator(".customer-history-heading > p")).toHaveText(
+    "Customer Two",
+  );
   await expect(
     dialog.getByText("No sales recorded for this customer."),
   ).toBeVisible();

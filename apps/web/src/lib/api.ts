@@ -6,7 +6,11 @@ import type {
 } from "../../../../packages/api-client/src";
 export type { CurrentUser, DashboardData, SupplierList, SupplierRecord };
 export type {
+  SupplierLedger,
+  SupplierLedgerList,
+  SupplierLedgerRecord,
   CustomerSalesHistory,
+  CustomerLedger,
   ReplacementStage,
   ReplacementCase,
   ReplacementList,

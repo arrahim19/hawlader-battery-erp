@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -263,15 +263,22 @@ export function PurchasesView({
     setModel("");
     setWarrantyMonths("");
   }
-  async function confirmPurchase(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function savePurchase(confirm: boolean) {
     if (preview || submitting.current || !canReceive) return;
     setError("");
     if (!selectedSupplierId || !purchaseDate) {
       setError("Select a supplier and enter the purchase date.");
       return;
     }
+    if (confirm && !reference.trim()) {
+      setError("Enter the invoice / challan number.");
+      return;
+    }
     if (productName) {
+      if (cart.length >= 100) {
+        setError("A purchase can contain up to 100 products.");
+        return;
+      }
       if (
         !selectedType ||
         !Number.isInteger(quantity) ||
@@ -299,14 +306,18 @@ export function PurchasesView({
       return;
     }
     if (
-      !/^\d{1,14}(?:\.\d{1,2})?$/.test(paid) ||
-      cents(paid) > totalCents ||
-      (paymentType === "partial" && cents(paid) <= BigInt(0))
+      confirm &&
+      (!/^\d{1,14}(?:\.\d{1,2})?$/.test(paid) ||
+        cents(paid) > totalCents ||
+        (paymentType === "partial" && cents(paid) <= BigInt(0)))
     ) {
       setError("Enter a valid paid amount within the purchase total.");
       return;
     }
-    if (!/^\d{1,14}(?:\.\d{1,2})?$/.test(canPay ? transportAmount : "0")) {
+    if (
+      confirm &&
+      !/^\d{1,14}(?:\.\d{1,2})?$/.test(canPay ? transportAmount : "0")
+    ) {
       setError("Enter a valid transport amount.");
       return;
     }
@@ -357,10 +368,11 @@ export function PurchasesView({
         setQuantity(0);
         setUnitPrice("");
       }
+      if (!confirm) return;
       const body = {
         supplierId: selectedSupplierId,
         purchaseDate,
-        reference,
+        reference: reference.trim(),
         items: items.map(({ productId, quantity, unitPrice }) => ({
           productId,
           quantity,
@@ -574,7 +586,13 @@ export function PurchasesView({
           </div>
         </Panel>
       ) : (
-        <form onSubmit={confirmPurchase} autoComplete="off">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void savePurchase(true);
+          }}
+          autoComplete="off"
+        >
           <nav className="purchase-mobile-tabs" aria-label="Purchase sections">
             {["Details", "Recent Purchases", "Payment"].map((label, index) => (
               <Button
@@ -642,6 +660,22 @@ export function PurchasesView({
                   <div className="erp-form-body">
                     <div className="purchase-product-heading mt-5 mb-3 flex items-center justify-between gap-3">
                       <h3 className="erp-section-title mb-0!">Add Products</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="purchase-add-another"
+                        disabled={
+                          preview ||
+                          !canReceive ||
+                          !selectedSupplierId ||
+                          !productName ||
+                          cart.length >= 100
+                        }
+                        onClick={() => void savePurchase(false)}
+                      >
+                        <Plus size={15} /> Add Another Product
+                      </Button>
                     </div>
                     <div className="erp-add-products">
                       <Field
@@ -674,6 +708,7 @@ export function PurchasesView({
                           <select
                             aria-label="Purchase supplier"
                             value={selectedSupplierId}
+                            disabled={cart.length > 0}
                             onChange={(event) =>
                               setSupplierId(event.target.value)
                             }
@@ -783,7 +818,7 @@ export function PurchasesView({
                         />
                       </Field>
                       <Field
-                        label="Unit Purchase Price (৳)"
+                        label="Unit Price (৳)"
                         required
                         className="purchase-price-field"
                       >
@@ -800,7 +835,10 @@ export function PurchasesView({
                       </Field>
                     </div>
                     <div className="purchase-basics purchase-product-fields grid">
-                      <Field label="Warranty (months)">
+                      <Field
+                        label="Warranty (months)"
+                        className="purchase-warranty-field"
+                      >
                         <input
                           aria-label="Purchase product warranty"
                           type="number"
@@ -820,7 +858,11 @@ export function PurchasesView({
                           }
                         />
                       </Field>
-                      <Field label="Transport (৳)" required={canPay}>
+                      <Field
+                        label="Transport (৳)"
+                        required={canPay}
+                        className="purchase-transport-field"
+                      >
                         <input
                           aria-label="Purchase transport amount"
                           required={canPay}
@@ -836,6 +878,14 @@ export function PurchasesView({
                           }
                         />
                       </Field>
+                      <Field label="Invoice / Challan No." required>
+                        <input
+                          required
+                          value={reference}
+                          onChange={(event) => setReference(event.target.value)}
+                          maxLength={160}
+                        />
+                      </Field>
                       <Field label="Purchase Date" required>
                         <input
                           type="date"
@@ -844,13 +894,6 @@ export function PurchasesView({
                             setPurchaseDate(event.target.value)
                           }
                           required
-                        />
-                      </Field>
-                      <Field label="Invoice / Challan No.">
-                        <input
-                          value={reference}
-                          onChange={(event) => setReference(event.target.value)}
-                          maxLength={160}
                         />
                       </Field>
                       <Button
@@ -875,6 +918,54 @@ export function PurchasesView({
                         </>
                       </Button>
                     </div>
+                    {cart.length > 0 ? (
+                      <section
+                        className="purchase-pending-products"
+                        aria-label="Products in this purchase"
+                      >
+                        <h3>
+                          Products in this purchase <span>{cart.length}</span>
+                        </h3>
+                        <ul>
+                          {cart.map((item) => (
+                            <li key={item.productId}>
+                              <div className="purchase-pending-name">
+                                <strong>{item.name}</strong>
+                                <span>
+                                  {item.model || item.typeName} ·{" "}
+                                  {item.quantity} × {money(item.unitPrice)}
+                                </span>
+                              </div>
+                              <strong>
+                                {money(
+                                  decimalAmount(
+                                    cents(item.unitPrice) *
+                                      BigInt(item.quantity),
+                                  ),
+                                )}
+                              </strong>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${item.name} from purchase`}
+                                onClick={() => {
+                                  setCart((items) =>
+                                    items.filter(
+                                      (line) =>
+                                        line.productId !== item.productId,
+                                    ),
+                                  );
+                                  setError("");
+                                }}
+                              >
+                                <X size={16} />
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
                   </div>
                 </Panel>
                 <Panel title="Recent Purchases" className="purchase-items">

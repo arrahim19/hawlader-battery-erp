@@ -55,7 +55,6 @@ test("accounts shows saved purchase transport in expenses and transactions", asy
             counts: {
               products: 0,
               customers: 0,
-              suppliers: 0,
               availableStock: "0",
               pendingReplacements: 0,
               sentToCompany: 0,

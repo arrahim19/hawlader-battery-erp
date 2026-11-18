@@ -178,11 +178,21 @@ for (const trackingKind of ["BATTERY_UNIT", "QUANTITY"] as const) {
     await page.getByLabel("Purchase quantity").fill("15");
     await page.getByLabel("Unit purchase price").fill("10000");
     await page.locator('input[type="date"]').fill("2026-11-15");
+    const reference = page.getByLabel("Invoice / Challan No.");
+    await expect(reference).toHaveAttribute("required", "");
     await page
-      .getByText("Invoice / Challan No.", { exact: true })
-      .locator("..")
-      .locator("input")
-      .fill("CH-100");
+      .getByRole("button", { name: "Confirm Purchase", exact: true })
+      .click();
+    expect(submitted).toHaveLength(0);
+    await reference.fill("   ");
+    await page
+      .getByRole("button", { name: "Confirm Purchase", exact: true })
+      .click();
+    await expect(
+      page.getByText("Enter the invoice / challan number."),
+    ).toBeVisible();
+    expect(submitted).toHaveLength(0);
+    await reference.fill("CH-100");
     await expect(
       page.getByRole("button", {
         name: /Save Purchase|Receive & Confirm|Add to List/,
@@ -406,6 +416,9 @@ test("purchase navigation and delayed list responses keep the layout stable", as
         ),
       ].map((selector) => {
         const rect = document.querySelector(selector)!.getBoundingClientRect();
+        // Mobile columns size to their contents as records arrive.
+        if (window.innerWidth < 768 && selector.includes(" th:"))
+          return { selector, y: rect.y, height: rect.height };
         return {
           selector,
           x: rect.x,
@@ -676,7 +689,8 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await expect(productType).toBeDisabled();
   await expect(productSelect).toBeDisabled();
   await page.evaluate(() => document.fonts.ready);
-  const reserved = await formGeometry();
+  const emptyGeometry = await formGeometry();
+  let reserved = emptyGeometry;
   blockModule = false;
   releaseModule!();
   await expect.poll(() => Boolean(releaseOptions)).toBe(true);
@@ -805,6 +819,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await page.getByLabel("Purchase supplier").selectOption("supplier-one");
   await page.locator('input[type="date"]').fill("2026-11-15");
   await page.getByLabel("Purchase transport amount", { exact: true }).fill("0");
+  await page.getByLabel("Invoice / Challan No.").fill("CH-LAYOUT");
   await page
     .getByRole("button", { name: "Confirm Purchase", exact: true })
     .click();
@@ -812,7 +827,22 @@ test("new purchase form keeps its geometry while options load and retry", async 
   await expect(page.locator(".purchase-items tbody tr")).toHaveCount(0);
   await expect(productType).toHaveValue("battery-type");
   await expect(productSelect).toHaveValue("");
-  expect(await formGeometry()).toEqual(reserved);
+  await expect(
+    page.getByRole("region", { name: "Products in this purchase" }),
+  ).toBeVisible();
+  const pendingGeometry = await formGeometry();
+  // The pending list expands the details panel while keeping entry controls fixed.
+  const entryControls = (geometry: typeof pendingGeometry) =>
+    geometry.filter(({ selector }) =>
+      [
+        ".purchase-basics",
+        ".purchase-product-heading",
+        ".purchase-page .erp-add-products",
+        ".purchase-page .purchase-add-button",
+      ].includes(selector),
+    );
+  expect(entryControls(pendingGeometry)).toEqual(entryControls(reserved));
+  reserved = pendingGeometry;
   await section(1);
   const populated = await formGeometry();
   await page
@@ -886,6 +916,7 @@ test("new purchase form keeps its geometry while options load and retry", async 
   // Test the empty catalog independently from the failed purchase draft.
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
+  reserved = emptyGeometry;
   releaseOptions = undefined;
   await tabs.getByRole("link", { name: "New Purchase", exact: true }).click();
   await expect.poll(() => Boolean(releaseOptions)).toBe(true);
