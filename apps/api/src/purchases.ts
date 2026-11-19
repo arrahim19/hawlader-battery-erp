@@ -248,12 +248,33 @@ export class PurchasesController {
           supplierReference: true,
           orderDate: true,
           status: true,
-          supplier: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true, company: true } },
           items: {
+            orderBy: { lineNumber: "asc" },
             select: {
+              id: true,
               quantity: true,
               unitPrice: true,
-              product: { select: { name: true } },
+              product: {
+                select: {
+                  name: true,
+                  model: true,
+                  type: { select: { name: true } },
+                  batteryDetail: {
+                    select: {
+                      capacityAh: true,
+                      voltage: true,
+                      defaultWarrantyMonths: true,
+                    },
+                  },
+                  partsDetail: {
+                    select: {
+                      specifications: true,
+                      defaultWarrantyMonths: true,
+                    },
+                  },
+                },
+              },
             },
           },
           receipts: {
@@ -292,6 +313,22 @@ export class PurchasesController {
             ...purchase,
             purchaseDate: orderDate.toISOString().slice(0, 10),
             itemCount: items.length,
+            items: items.map(({ product, quantity, unitPrice, id }) => ({
+              id,
+              name: product.name,
+              typeName: product.type.name,
+              model: product.model,
+              capacityAh: product.batteryDetail?.capacityAh?.toString() ?? null,
+              voltage: product.batteryDetail?.voltage?.toString() ?? null,
+              specifications: product.partsDetail?.specifications ?? null,
+              warrantyMonths:
+                product.batteryDetail?.defaultWarrantyMonths ??
+                product.partsDetail?.defaultWarrantyMonths ??
+                0,
+              quantity: quantity.toString(),
+              unitPrice: unitPrice.toFixed(2),
+              total: quantity.mul(unitPrice).toFixed(2),
+            })),
             quantity: items
               .reduce(
                 (sum, item) => sum.add(item.quantity),
@@ -450,11 +487,13 @@ export class PurchasesController {
               "Receive at most 500 batteries per purchase.",
             );
         }
+        const [number] = await tx.$queryRaw<{ number: string }[]>`
+          SELECT 'PUR-' || lpad(nextval('"Purchase_number_seq"')::text, 6, '0') AS number
+        `;
         const purchase = await tx.purchase.create({
           data: {
             id: requestKey,
-            number:
-              "PUR-" + body.purchaseDate.replaceAll("-", "") + "-" + requestKey,
+            number: number.number,
             supplierId: supplier.id,
             orderDate: new Date(body.purchaseDate),
             supplierReference: body.reference || null,

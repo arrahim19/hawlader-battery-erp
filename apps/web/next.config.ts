@@ -4,8 +4,10 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: path.resolve(__dirname, "../../.env"), quiet: true });
 const internalApiUrl = process.env.INTERNAL_API_URL ?? "http://127.0.0.1:3001";
 const config: NextConfig = {
-  allowedDevOrigins: (process.env.APP_DEV_ORIGINS ?? "")
-    .split(",")
+  allowedDevOrigins: [
+    process.env.APP_ORIGIN ?? "http://localhost:3000",
+    ...(process.env.APP_DEV_ORIGINS ?? "").split(","),
+  ]
     .map((value) => value.trim())
     .filter(Boolean)
     .map((value) => new URL(value).hostname),

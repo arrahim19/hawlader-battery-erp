@@ -457,7 +457,7 @@ test("saved sales appear on entry, survive reload, and paginate without changing
   await expect(
     page.getByRole("table", { name: "Sale items", exact: true }),
   ).toContainText("Sale Test Auto Part");
-  await page.getByRole("button", { name: "Recent Sales", exact: true }).click();
+  await page.getByRole("button", { name: "Sales List", exact: true }).click();
   await expect(history).toContainText("SAVED-1");
   await page
     .getByRole("button", { name: "Sale Items (1)", exact: true })

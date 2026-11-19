@@ -1,41 +1,25 @@
 "use client";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
-  Eye,
-  Plus,
-  Search,
-  Users,
-} from "lucide-react";
+import { ClipboardList, Plus, Search, Users } from "lucide-react";
 import { ModuleTabs, Panel, workspaceHref } from "@/components/reference-ui";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/components/session-provider";
-import { type CustomerList, type CustomerRecord } from "@/lib/api";
+import { api, type CustomerList, type CustomerRecord } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { money } from "@/lib/utils";
 import { CustomerForm } from "./customer-form";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 import { CustomerLedgerView } from "./customer-ledger-view";
 
-const columns = ["#", "Customer", "Mobile", "Total Sales", "Due", "Details"];
-const mobileCustomersQuery = "(max-width: 1023px)";
-function subscribeCustomerPageSize(listener: () => void) {
-  const query = window.matchMedia(mobileCustomersQuery);
-  query.addEventListener("change", listener);
-  return () => query.removeEventListener("change", listener);
+const columns = ["#", "Customer", "Mobile", "Total Sales", "Due"];
+const pageSize = 100;
+function customerMoney(value?: string | null) {
+  const formatted = money(value);
+  return value != null && Number(value) !== 0
+    ? formatted.replace(/\.00$/, "")
+    : formatted;
 }
-const customerPageSize = () =>
-  window.matchMedia(mobileCustomersQuery).matches ? 3 : 15;
-const staticCustomerPageSize = () => 15;
 
 export function CustomersView({
   preview,
@@ -52,54 +36,71 @@ export function CustomersView({
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
-  const pageSize = useSyncExternalStore(
-    subscribeCustomerPageSize,
-    customerPageSize,
-    staticCustomerPageSize,
-  );
-  const [pagination, setPagination] = useState({ page: 1, pageSize });
-  const page = pagination.pageSize === pageSize ? pagination.page : 1;
-  const setPage = useCallback(
-    (next: number | ((previous: number) => number)) => {
-      setPagination((previous) => {
-        const currentPage = previous.pageSize === pageSize ? previous.page : 1;
-        return {
-          page: typeof next === "function" ? next(currentPage) : next,
-          pageSize,
-        };
-      });
-    },
-    [pageSize],
-  );
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setQuery(search.trim());
-      setPage(1);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [search, setPage]);
+  }, [search]);
   const [revision, setRevision] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyCustomer, setHistoryCustomer] = useState<CustomerRecord | null>(
     null,
   );
-  const historyButton = useRef<HTMLButtonElement | null>(null);
+  const historyButton = useRef<HTMLElement | null>(null);
   const params = new URLSearchParams({
     q: query,
     status,
     credit: current === "credit" ? "due" : "all",
-    page: String(page),
+    page: "1",
     pageSize: String(pageSize),
   });
   const resource = useCatalogResource<CustomerList>(
     preview || current === "ledger" ? null : "/customers?" + params,
     revision,
   );
-  const list = resource.data;
-  const selected =
-    list?.items.find((customer) => customer.id === selectedId) ??
-    list?.items[0];
-  const pages = Math.max(1, Math.ceil((list?.total ?? 0) / pageSize));
+  const [extra, setExtra] = useState<{
+    first: CustomerList;
+    items: CustomerRecord[];
+    page: number;
+  } | null>(null);
+  const [scrollError, setScrollError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const first = resource.data;
+  const continuation = extra?.first === first ? extra : null;
+  const loadedList =
+    first && continuation
+      ? { ...first, items: [...first.items, ...continuation.items] }
+      : first;
+  const hasMore = Boolean(
+    loadedList && loadedList.items.length < loadedList.total,
+  );
+  const list = hasMore ? null : loadedList;
+  const loading = resource.loading || (hasMore && !scrollError);
+  const nextPage = (continuation?.page ?? 1) + 1;
+  const scrollPath = new URLSearchParams(params);
+  scrollPath.set("page", String(nextPage));
+  const nextPath = "/customers?" + scrollPath;
+  useEffect(() => {
+    if (!hasMore || !first) return;
+    let active = true;
+    api<CustomerList>(nextPath)
+      .then((data) => {
+        if (!active) return;
+        setExtra({
+          first,
+          items: [...(continuation?.items ?? []), ...data.items],
+          page: nextPage,
+        });
+      })
+      .catch(() => {
+        if (active) setScrollError("Unable to load more customers.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [hasMore, first, continuation, nextPage, nextPath, retry]);
+  const selected = list?.items.find((customer) => customer.id === selectedId);
   const title = current === "credit" ? "Credit Customers" : "Customer List";
   const filters = (
     <form
@@ -109,7 +110,6 @@ export function CustomersView({
       onSubmit={(event) => {
         event.preventDefault();
         setQuery(search.trim());
-        setPage(1);
       }}
     >
       <label className="erp-search">
@@ -128,7 +128,6 @@ export function CustomersView({
         value={status}
         onChange={(event) => {
           setStatus(event.target.value);
-          setPage(1);
         }}
       >
         <option value="all">All statuses</option>
@@ -187,7 +186,7 @@ export function CustomersView({
               className="customer-list-panel"
               action={filters}
             >
-              <div className="erp-table-wrap" aria-busy={resource.loading}>
+              <div className="erp-table-wrap" aria-busy={loading}>
                 <table className="erp-table min-w-[680px]">
                   <caption className="sr-only">Customers</caption>
                   <thead>
@@ -203,19 +202,41 @@ export function CustomersView({
                     {list?.items.map((customer, index) => (
                       <tr
                         key={customer.id}
+                        tabIndex={0}
+                        aria-label={`View details for ${customer.name}`}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("button"))
+                            return;
+                          historyButton.current = event.currentTarget;
+                          setSelectedId(customer.id);
+                          setHistoryCustomer(customer);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            historyButton.current = event.currentTarget;
+                            setSelectedId(customer.id);
+                            setHistoryCustomer(customer);
+                          }
+                        }}
                         className={
                           selected?.id === customer.id
-                            ? "bg-green-50"
-                            : undefined
+                            ? "cursor-pointer bg-green-50 outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-green-600"
+                            : "cursor-pointer hover:bg-green-50 outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-green-600"
                         }
                       >
-                        <td>{(page - 1) * pageSize + index + 1}</td>
+                        <td>{index + 1}</td>
                         <td>
                           <button
                             type="button"
                             className="text-left font-semibold text-green-800 hover:underline"
                             aria-pressed={selected?.id === customer.id}
-                            onClick={() => setSelectedId(customer.id)}
+                            onClick={(event) => {
+                              historyButton.current = event.currentTarget;
+                              setSelectedId(customer.id);
+                              setHistoryCustomer(customer);
+                            }}
                           >
                             {customer.name}
                           </button>
@@ -223,26 +244,10 @@ export function CustomersView({
                         <td className="whitespace-nowrap">{customer.phone}</td>
 
                         <td className="whitespace-nowrap">
-                          {money(customer.totalSales)}
+                          {customerMoney(customer.totalSales)}
                         </td>
                         <td className="whitespace-nowrap">
-                          {money(customer.due)}
-                        </td>
-                        <td>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            aria-label="Details"
-                            title={`Details — ${customer.name}`}
-                            onClick={(event) => {
-                              historyButton.current = event.currentTarget;
-                              setSelectedId(customer.id);
-                              setHistoryCustomer(customer);
-                            }}
-                          >
-                            <Eye />
-                          </Button>
+                          {customerMoney(customer.due)}
                         </td>
                       </tr>
                     ))}
@@ -253,9 +258,9 @@ export function CustomersView({
                             role="status"
                             className="flex min-h-48 items-center justify-center p-6 text-center text-sm text-slate-500"
                           >
-                            {resource.loading
+                            {loading
                               ? "Loading customers..."
-                              : resource.error
+                              : resource.error || scrollError
                                 ? "Unable to load customers."
                                 : preview
                                   ? "Sign in to view customer records."
@@ -268,34 +273,32 @@ export function CustomersView({
                         </td>
                       </tr>
                     ) : null}
+                    {hasMore && scrollError ? (
+                      <tr>
+                        <td colSpan={columns.length} className="text-center">
+                          {scrollError ? (
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setScrollError("");
+                                setRetry((value) => value + 1);
+                              }}
+                            >
+                              Retry loading customers
+                            </Button>
+                          ) : (
+                            <span role="status">Loading more customers...</span>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
               <div className="erp-pager">
                 <span>
-                  {list ? `${list.total} customers` : "—"} · Page {page} of{" "}
-                  {pages}
+                  {list ? `${list.total} customers` : "—"}
                 </span>
-                <div>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Previous customer page"
-                    disabled={resource.loading || page <= 1}
-                    onClick={() => setPage((value) => value - 1)}
-                  >
-                    <ChevronLeft />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Next customer page"
-                    disabled={resource.loading || page >= pages}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    <ChevronRight />
-                  </Button>
-                </div>
               </div>
             </Panel>
             <Panel
@@ -328,8 +331,8 @@ export function CustomersView({
                       ["Name", selected.name],
                       ["Mobile", selected.phone],
                       ["Address", selected.address || "—"],
-                      ["Total Sales", money(selected.totalSales)],
-                      ["Outstanding Due", money(selected.due)],
+                      ["Total Sales", customerMoney(selected.totalSales)],
+                      ["Outstanding Due", customerMoney(selected.due)],
                     ].map(([label, value]) => (
                       <div key={label}>
                         <dt>{label}</dt>
@@ -340,11 +343,7 @@ export function CustomersView({
                     ))}
                   </dl>
                 </>
-              ) : (
-                <p className="erp-details-hint">
-                  Select a customer to view their contact details.
-                </p>
-              )}
+              ) : null}
             </Panel>
           </div>
         </>

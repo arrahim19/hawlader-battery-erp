@@ -577,7 +577,7 @@ export class CustomersController {
         where,
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        orderBy: [{ soldAt: "desc" }, { id: "desc" }],
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         include: {
           items: {
             orderBy: { lineNumber: "asc" },

@@ -1,3 +1,4 @@
+import { randomId } from "@/lib/random-id";
 import type {
   CurrentUser,
   DashboardData,
@@ -72,7 +73,7 @@ export async function api<T>(route: string, init?: RequestInit): Promise<T> {
   ) {
     window.dispatchEvent(new Event(RESOURCE_CHANGED_EVENT));
     try {
-      localStorage.setItem(RESOURCE_CHANGED_EVENT, crypto.randomUUID());
+      localStorage.setItem(RESOURCE_CHANGED_EVENT, randomId());
     } catch {
       // In-tab invalidation works even when browser storage is unavailable.
     }

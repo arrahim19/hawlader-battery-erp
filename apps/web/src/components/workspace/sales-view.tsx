@@ -1,4 +1,5 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import {
   useEffect,
   useRef,
@@ -10,19 +11,14 @@ import { Dialog } from "radix-ui";
 import {
   CalendarDays,
   Check,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
   CreditCard,
-  Eye,
   FileText,
   List,
   LoaderCircle,
   PackageOpen,
   Plus,
-  RotateCcw,
+  Search,
   ShoppingCart,
-  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +29,7 @@ import {
   SummaryRows,
 } from "@/components/reference-ui";
 import { useSession } from "@/components/session-provider";
+import { api } from "@/lib/api";
 import {
   post,
   type CompletedSale,
@@ -44,7 +41,7 @@ import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { notifyDashboardUpdate } from "@/lib/use-dashboard";
 import { useBusinessDate } from "@/lib/use-business-date";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
-import { money } from "@/lib/utils";
+import { money, shortBusinessDate as saleListDate } from "@/lib/utils";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 import { CustomerForm } from "./customer-form";
 import { TransactionView } from "./transaction-view";
@@ -68,40 +65,42 @@ type SaleLine = {
 const validPrice = (value: string) => /^\d{1,14}(?:\.\d{1,2})?$/.test(value);
 const validUnitPrice = (value: string) =>
   validPrice(value) && cents(value) > BigInt(0);
+function saleListMoney(value?: string | null) {
+  const formatted = money(value);
+  return value != null && Number(value) !== 0
+    ? formatted.replace(/\.00$/, "")
+    : formatted;
+}
 
 function RecentSales({
   data,
   loading,
   error,
-  page,
-  pages,
-  onPage,
   bodyRef,
   onDeleted,
   preview,
+  searching,
 }: {
   data: SalesList | null;
   loading: boolean;
   error: string;
-  page: number;
-  pages: number;
-  onPage: (page: number) => void;
   bodyRef: RefObject<HTMLDivElement | null>;
   onDeleted: (id: string) => void;
   preview: boolean;
+  searching: boolean;
 }) {
   const [details, setDetails] = useState<SalesList["items"][number] | null>(
     null,
   );
-  const detailsButton = useRef<HTMLButtonElement | null>(null);
+  const detailsRow = useRef<HTMLTableRowElement | null>(null);
   return (
     <>
       <div className="sales-cart-body sales-history-body" ref={bodyRef}>
         <div className="erp-table-wrap">
           <table className="erp-table">
-            <caption className="sr-only">Recent sales</caption>
+            <caption className="sr-only">Sales List</caption>
             <colgroup>
-              {[15, 11, 19, 5, 11, 11, 11, 12, 5].map((width, index) => (
+              {[17, 12, 23, 5, 12, 12, 12, 7].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
@@ -115,7 +114,6 @@ function RecentSales({
                   "Total (৳)",
                   "Paid (৳)",
                   "Due (৳)",
-                  "Details",
                   "Action",
                 ].map((label) => (
                   <th key={label} scope="col">
@@ -126,11 +124,34 @@ function RecentSales({
             </thead>
             <tbody>
               {data?.items.map((sale) => (
-                <tr key={sale.id}>
+                <tr
+                  key={sale.id}
+                  tabIndex={0}
+                  aria-label={`View details for ${sale.invoiceNumber || sale.id}`}
+                  className="cursor-pointer hover:bg-green-50 focus-visible:outline-2 focus-visible:outline-green-600 outline-offset-[-2px]"
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (
+                      !event.currentTarget.contains(target) ||
+                      target.closest("button")
+                    )
+                      return;
+                    detailsRow.current = event.currentTarget;
+                    setDetails(sale);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      detailsRow.current = event.currentTarget;
+                      setDetails(sale);
+                    }
+                  }}
+                >
                   <td title={sale.invoiceNumber ?? undefined}>
                     {sale.invoiceNumber || "—"}
                   </td>
-                  <td>{sale.saleDate || "—"}</td>
+                  <td>{saleListDate(sale.saleDate)}</td>
                   <td>
                     {sale.customer.name}
                     <small className="block text-slate-500">
@@ -138,24 +159,9 @@ function RecentSales({
                     </small>
                   </td>
                   <td>{sale.quantity}</td>
-                  <td>{money(sale.total)}</td>
-                  <td>{money(sale.paid)}</td>
-                  <td>{money(sale.due)}</td>
-                  <td>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      aria-label="Details"
-                      title={`Details — ${sale.invoiceNumber ?? sale.id}`}
-                      onClick={(event) => {
-                        detailsButton.current = event.currentTarget;
-                        setDetails(sale);
-                      }}
-                    >
-                      <Eye />
-                    </Button>
-                  </td>
+                  <td>{saleListMoney(sale.total)}</td>
+                  <td>{saleListMoney(sale.paid)}</td>
+                  <td>{saleListMoney(sale.due)}</td>
                   <td>
                     <TransactionDeleteButton
                       kind="sales"
@@ -178,38 +184,16 @@ function RecentSales({
                 ? "Loading sales..."
                 : error
                   ? "Unable to load sales"
-                  : "No confirmed sales yet"}
+                  : searching
+                    ? "No matching sales found"
+                    : "No confirmed sales yet"}
             </p>
             <span>নিশ্চিত বিক্রয় এখানে দেখা যাবে।</span>
           </div>
         ) : null}
       </div>
       <div className="erp-pager sales-items-pager">
-        <span>
-          {data?.total ?? 0} sales · Page {page} / {pages}
-        </span>
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label="Previous recent sales page"
-            disabled={loading || page <= 1}
-            onClick={() => onPage(page - 1)}
-          >
-            <ChevronLeft />
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label="Next recent sales page"
-            disabled={loading || page >= pages}
-            onClick={() => onPage(page + 1)}
-          >
-            <ChevronRight />
-          </Button>
-        </div>
+        <span>{data?.total ?? 0} sales</span>
       </div>
       {details ? (
         <CustomerSalesHistoryDialog
@@ -218,7 +202,7 @@ function RecentSales({
           sale={details}
           preview={preview}
           onClose={() => setDetails(null)}
-          returnFocus={() => detailsButton.current?.focus()}
+          returnFocus={() => detailsRow.current?.focus()}
         />
       ) : null}
     </>
@@ -240,22 +224,68 @@ export function SalesView({
 }) {
   const user = useSession();
   const [revision, setRevision] = useState(0);
-  const [page, setPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(3);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const current = ["list", "returns", "collections", "reports"].includes(view)
-    ? view
-    : "new";
+  const current = ["list", "returns", "reports"].includes(view) ? view : "new";
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const searchSuffix = query ? `&q=${encodeURIComponent(query)}` : "";
   const options = useCatalogResource<SalesOptions>(
     !preview && !loading && current === "new" ? "/sales/options" : null,
     revision,
   );
-  const listing = useCatalogResource<SalesList>(
-    !preview && !loading && ["new", "list"].includes(current)
-      ? `/sales?page=${page}&pageSize=${current === "new" ? itemsPerPage : 20}`
+  const firstSales = useCatalogResource<SalesList>(
+    !preview && !loading && current === "list"
+      ? `/sales?page=1&pageSize=100${searchSuffix}`
       : null,
     revision,
   );
+  const [allSales, setAllSales] = useState<{
+    first: SalesList;
+    data: SalesList;
+  } | null>(null);
+  const [salesFailure, setSalesFailure] = useState<SalesList | null>(null);
+  const first = firstSales.data;
+  const needsMore = Boolean(first && first.items.length < first.total);
+  useEffect(() => {
+    if (!first || !needsMore) return;
+    const initial = first;
+    let active = true;
+    async function loadRemaining() {
+      const items = [...initial.items];
+      const count = Math.ceil(initial.total / 100);
+      for (let page = 2; page <= count; page++) {
+        const result = await api<SalesList>(
+          `/sales?page=${page}&pageSize=100${searchSuffix}`,
+        );
+        if (!active) return;
+        items.push(...result.items);
+      }
+      if (active) setAllSales({ first: initial, data: { ...initial, items } });
+    }
+    loadRemaining().catch(() => {
+      if (active) setSalesFailure(first);
+    });
+    return () => {
+      active = false;
+    };
+  }, [first, needsMore, searchSuffix]);
+  const salesData = needsMore
+    ? allSales?.first === first
+      ? allSales.data
+      : null
+    : first;
+  const salesError =
+    firstSales.error ||
+    (needsMore && salesFailure === first ? "Unable to load sales." : "");
+  const listing = {
+    data: salesData,
+    error: salesError,
+    loading:
+      firstSales.loading || Boolean(needsMore && !salesData && !salesError),
+  };
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [createdCustomers, setCreatedCustomers] = useState<CustomerRecord[]>(
     [],
@@ -282,7 +312,6 @@ export function SalesView({
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [mobilePanel, setMobilePanel] = useState("details");
-  const [itemsPage, setItemsPage] = useState(1);
   const cartBody = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -316,16 +345,6 @@ export function SalesView({
     ];
   });
   const displayedItems = completed?.items ?? cart;
-  const showHistory = historyOpen || displayedItems.length === 0;
-  const itemPages = Math.max(
-    1,
-    Math.ceil(displayedItems.length / itemsPerPage),
-  );
-  const currentItemsPage = Math.min(itemsPage, itemPages);
-  const visibleItems = displayedItems.slice(
-    (currentItemsPage - 1) * itemsPerPage,
-    currentItemsPage * itemsPerPage,
-  );
   const submission = useRef<{ signature: string; key: string } | null>(null);
   const submitting = useRef(false);
   const customers = [
@@ -336,7 +355,6 @@ export function SalesView({
     ).values(),
   ];
   const customer = customers.find((item) => item.id === customerId);
-  const customerDue = decimalAmount(cents(customer?.due ?? "0.00"));
   const totalCents = completed
     ? cents(completed.total)
     : cart.reduce(
@@ -354,26 +372,6 @@ export function SalesView({
   const due = decimalAmount(totalCents - cents(paid));
   const busy = loading || options.loading;
   const loadError = options.error || listing.error || moduleError;
-  const pages = Math.max(
-    1,
-    Math.ceil((listing.data?.total ?? 0) / (listing.data?.pageSize ?? 20)),
-  );
-
-  useEffect(() => {
-    const element = cartBody.current;
-    if (!element || current !== "new") return;
-    const observer = new ResizeObserver(() => {
-      const height = element.clientHeight;
-      if (!height) return;
-      const rowHeight = window.matchMedia("(max-height: 700px)").matches
-        ? 38
-        : 44;
-      // Reserve the table header and horizontal scrollbar within the item area.
-      setItemsPerPage(Math.max(1, Math.floor((height - 32 - 18) / rowHeight)));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [current, mobilePanel, showHistory]);
 
   function resetEntry() {
     setEntries([blankSaleEntry("entry-0")]);
@@ -383,8 +381,6 @@ export function SalesView({
     const row = blankSaleEntry("entry-" + entrySequence.current++);
     row.typeId = entries.at(-1)?.typeId ?? "";
     setEntries((previous) => [...previous, row]);
-    setItemsPage(Math.max(1, Math.ceil(cart.length / itemsPerPage)));
-    setHistoryOpen(false);
     setCompleted(null);
     setError("");
     requestAnimationFrame(() => {
@@ -404,7 +400,6 @@ export function SalesView({
       ),
     );
     setCompleted(null);
-    setHistoryOpen(false);
     setError("");
   }
   function removeEntry(id: string) {
@@ -413,15 +408,6 @@ export function SalesView({
       return remaining.length ? remaining : [blankSaleEntry("entry-0")];
     });
     setCompleted(null);
-    setError("");
-  }
-  function removeProduct(productId: string) {
-    setEntries((previous) => {
-      const remaining = previous.filter(
-        (entry) => entry.productId !== productId,
-      );
-      return remaining.length ? remaining : [blankSaleEntry("entry-0")];
-    });
     setError("");
   }
   async function completeSale(event: FormEvent) {
@@ -495,7 +481,7 @@ export function SalesView({
     };
     const signature = JSON.stringify(body);
     if (submission.current?.signature !== signature)
-      submission.current = { signature, key: crypto.randomUUID() };
+      submission.current = { signature, key: randomId() };
     submitting.current = true;
     setSaving(true);
     try {
@@ -503,8 +489,6 @@ export function SalesView({
         "Idempotency-Key": submission.current.key,
       });
       setCompleted({ ...result, items });
-      setHistoryOpen(true);
-      setPage(1);
       resetEntry();
       setPartialPaid("");
       setNotes("");
@@ -541,8 +525,6 @@ export function SalesView({
         items={[
           { id: "new", label: "New Sale", icon: ShoppingCart },
           { id: "list", label: "Sales List", icon: List },
-          { id: "returns", label: "Sales Return", icon: RotateCcw },
-          { id: "collections", label: "Due Collections", icon: ClipboardList },
         ]}
       />
       <div className="sales-notices">
@@ -569,19 +551,42 @@ export function SalesView({
         ) : null}
       </div>
       {current === "list" ? (
-        <Panel title="Sales List" className="sales-list-panel">
+        <Panel
+          title="Sales List"
+          className="sales-list-panel"
+          action={
+            <form
+              className="sales-list-filters"
+              role="search"
+              aria-label="Sales filters"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setQuery(search.trim());
+              }}
+            >
+              <label className="erp-search">
+                <Search size={18} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search sales"
+                  placeholder="Invoice, customer or mobile"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  maxLength={160}
+                />
+              </label>
+            </form>
+          }
+        >
           <RecentSales
             data={listing.data}
             loading={loading || listing.loading}
             error={listing.error}
-            page={page}
-            pages={pages}
-            onPage={setPage}
             bodyRef={cartBody}
             preview={preview}
+            searching={Boolean(query)}
             onDeleted={(id) => {
               if (completed?.id === id) setCompleted(null);
-              setPage(1);
               setRevision((value) => value + 1);
             }}
           />
@@ -601,7 +606,6 @@ export function SalesView({
           <nav className="sales-mobile-panels" aria-label="Sale panels">
             {[
               ["details", "Details"],
-              ["items", "Items / Sales"],
               ["payment", "Payment"],
             ].map(([id, label]) => (
               <button
@@ -731,175 +735,6 @@ export function SalesView({
                     ))}
                   </div>
                 </Panel>
-                <Panel
-                  title={showHistory ? "Recent Sales" : "Sale Items"}
-                  className="sales-cart-panel"
-                  action={
-                    <div className="flex items-center gap-2">
-                      {displayedItems.length > 0 ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setHistoryOpen(!showHistory)}
-                        >
-                          {showHistory
-                            ? `Sale Items (${displayedItems.length})`
-                            : "Recent Sales"}
-                        </Button>
-                      ) : null}
-                      {!showHistory ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={!displayedItems.length}
-                          onClick={() => {
-                            setCompleted(null);
-                            resetEntry();
-                            setPartialPaid("");
-                            setError("");
-                          }}
-                        >
-                          <Trash2 />
-                          Clear All
-                        </Button>
-                      ) : null}
-                    </div>
-                  }
-                >
-                  {showHistory ? (
-                    <RecentSales
-                      data={listing.data}
-                      loading={loading || listing.loading}
-                      error={listing.error}
-                      page={page}
-                      pages={pages}
-                      onPage={setPage}
-                      bodyRef={cartBody}
-                      preview={preview}
-                      onDeleted={(id) => {
-                        if (completed?.id === id) setCompleted(null);
-                        setPage(1);
-                        setRevision((value) => value + 1);
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <div className="sales-cart-body" ref={cartBody}>
-                        <div className="erp-table-wrap">
-                          <table className="erp-table">
-                            <caption className="sr-only">Sale items</caption>
-                            <colgroup>
-                              {[25, 20, 7, 13, 15, 12, 8].map(
-                                (width, index) => (
-                                  <col
-                                    key={index}
-                                    style={{ width: `${width}%` }}
-                                  />
-                                ),
-                              )}
-                            </colgroup>
-                            <thead>
-                              <tr>
-                                {[
-                                  "Product",
-                                  "Model Number",
-                                  "Qty",
-                                  "Unit Price (৳)",
-                                  "Total (৳)",
-                                  "Due",
-                                  "Action",
-                                ].map((column) => (
-                                  <th key={column}>{column}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {visibleItems.map((line) => (
-                                <tr key={line.entryId ?? line.productId}>
-                                  <td>
-                                    {line.name}
-                                    <small className="block text-slate-500">
-                                      {line.typeName}
-                                    </small>
-                                  </td>
-                                  <td>{line.model || "-"}</td>
-                                  <td>{line.quantity}</td>
-                                  <td>{money(line.unitPrice)}</td>
-                                  <td>
-                                    {money(
-                                      decimalAmount(
-                                        cents(line.unitPrice) *
-                                          BigInt(line.quantity),
-                                      ),
-                                    )}
-                                  </td>
-                                  <td aria-label="Customer outstanding due">
-                                    {money(customerDue)}
-                                  </td>
-                                  <td>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      aria-label={`Remove ${line.name}`}
-                                      disabled={Boolean(completed)}
-                                      onClick={() =>
-                                        removeProduct(line.productId)
-                                      }
-                                    >
-                                      <Trash2 />
-                                    </Button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {!displayedItems.length ? (
-                          <div className="erp-empty sales-cart-empty">
-                            <PackageOpen />
-                            <p>কোনো পণ্য যোগ করা হয়নি</p>
-                            <span>
-                              পণ্য, quantity ও unit price দিয়ে Confirm Sale চাপুন।
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                      {displayedItems.length > 0 ? (
-                        <div className="erp-pager sales-items-pager">
-                          <span>
-                            Page {currentItemsPage} / {itemPages} ·{" "}
-                            {displayedItems.length} items
-                          </span>
-                          <div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              aria-label="Previous sale items page"
-                              disabled={currentItemsPage <= 1}
-                              onClick={() => setItemsPage(currentItemsPage - 1)}
-                            >
-                              <ChevronLeft />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              aria-label="Next sale items page"
-                              disabled={currentItemsPage >= itemPages}
-                              onClick={() => setItemsPage(currentItemsPage + 1)}
-                            >
-                              <ChevronRight />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </Panel>
               </div>
               <aside className="sales-side">
                 <Panel>
@@ -991,11 +826,9 @@ export function SalesView({
             </div>
           </fieldset>
           <div className="sales-actions">
-            <span>
-              {preview
-                ? "UI preview: লগইন ছাড়া বিক্রয় সংরক্ষিত হবে না।"
-                : "নিশ্চিত করলে stock ও customer-এর হিসাব আপডেট হবে।"}
-            </span>
+            {preview ? (
+              <span>UI preview: লগইন ছাড়া বিক্রয় সংরক্ষিত হবে না।</span>
+            ) : null}
             <div className="sales-confirm-actions">
               <Button
                 type="button"

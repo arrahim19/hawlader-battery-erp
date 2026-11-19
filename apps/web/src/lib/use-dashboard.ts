@@ -1,4 +1,5 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import { useEffect, useState } from "react";
 import { api, type DashboardData } from "@/lib/api";
 import { useSession } from "@/components/session-provider";
@@ -6,7 +7,7 @@ const dashboardUpdateKey = "hawlader:dashboard-update";
 export function notifyDashboardUpdate() {
   window.dispatchEvent(new Event(dashboardUpdateKey));
   try {
-    localStorage.setItem(dashboardUpdateKey, crypto.randomUUID());
+    localStorage.setItem(dashboardUpdateKey, randomId());
   } catch {
     // Same-tab refresh remains available when storage is disabled.
   }

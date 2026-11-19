@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
-import { Eye, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/reference-ui";
 import { businessDate, money } from "@/lib/utils";
@@ -160,31 +160,34 @@ export function PurchaseQuickAdd({
   );
 }
 
-export function PurchaseDetailsButton({
+export function PurchaseDetailsDialog({
   purchase,
+  onClose,
+  returnFocus,
 }: {
   purchase: RecentPurchases["items"][number];
+  onClose: () => void;
+  returnFocus: () => void;
 }) {
   const total = decimalAmount(
     purchase.items.reduce((sum, item) => sum + cents(item.total), BigInt(0)),
   );
   return (
-    <Dialog.Root>
-      <Dialog.Trigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="outline"
-          className="purchase-details-button"
-          aria-label="Details"
-          title={`Details — ${purchase.supplier.name}`}
-        >
-          <Eye />
-        </Button>
-      </Dialog.Trigger>
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/40" />
-        <Dialog.Content className="feature-dialog customer-history-dialog">
+        <Dialog.Content
+          className="feature-dialog customer-history-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            returnFocus();
+          }}
+        >
           <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div>
               <Dialog.Title className="text-lg font-bold">
@@ -225,7 +228,7 @@ export function PurchaseDetailsButton({
                   <tr key={item.id}>
                     {[
                       item.name,
-                      item.model.trim() || "—",
+                      item.model.trim() || "N/A",
                       item.quantity,
                       money(item.unitPrice),
                       money(item.total),

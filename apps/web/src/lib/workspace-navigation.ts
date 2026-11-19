@@ -9,8 +9,6 @@ export const childNavigation: Record<
   sales: [
     { label: "New Sale", view: "new" },
     { label: "Sales List", view: "list" },
-    { label: "Returns (Sales Return)", view: "returns" },
-    { label: "Due Collections", view: "collections" },
   ],
   replacements: [
     { label: "Replacement List", view: "list" },

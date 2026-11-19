@@ -1,18 +1,16 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   CreditCard,
   Eye,
   MapPin,
   Phone,
   Plus,
-  Printer,
   Search,
   Users,
   Wallet,
@@ -21,11 +19,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/reference-ui";
 import { useSession } from "@/components/session-provider";
-import { post, type CustomerLedger, type CustomerList } from "@/lib/api";
+import { api, post, type CustomerLedger, type CustomerList } from "@/lib/api";
 import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { useBusinessDate } from "@/lib/use-business-date";
 import { notifyDashboardUpdate } from "@/lib/use-dashboard";
-import { businessDate, money } from "@/lib/utils";
+import { businessDate, money, shortBusinessDate } from "@/lib/utils";
 import { cents } from "@/lib/purchase-amounts";
 import { CustomerSalesHistoryDialog } from "./customer-sales-history";
 
@@ -58,7 +56,7 @@ function CollectPaymentDialog({
     };
     const serialized = JSON.stringify(body);
     if (submission.current?.body !== serialized)
-      submission.current = { body: serialized, key: crypto.randomUUID() };
+      submission.current = { body: serialized, key: randomId() };
     submitting.current = true;
     setSaving(true);
     setError("");
@@ -194,14 +192,9 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
   const today = useBusinessDate();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [customerPage, setCustomerPage] = useState(1);
   const [selectedId, setSelectedId] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
   const [period, setPeriod] = useState({ from: "", to: "" });
-  const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
-  const [filterError, setFilterError] = useState("");
   const [collecting, setCollecting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [receipt, setReceipt] = useState("");
@@ -209,20 +202,73 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setQuery(search.trim());
-      setCustomerPage(1);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [search]);
-  const customers = useCatalogResource<CustomerList>(
+  const firstCustomers = useCatalogResource<CustomerList>(
     preview
       ? null
-      : `/customers?${new URLSearchParams({ q: query, status: "all", credit: "all", page: String(customerPage), pageSize: "10" })}`,
+      : `/customers?${new URLSearchParams({ q: query, status: "all", credit: "all", page: "1", pageSize: "100" })}`,
     revision,
     true,
   );
-  const selected =
-    customers.data?.items.find((item) => item.id === selectedId) ??
-    customers.data?.items[0];
+  const [allCustomers, setAllCustomers] = useState<{
+    first: CustomerList;
+    data: CustomerList;
+  } | null>(null);
+  const [customerFailure, setCustomerFailure] = useState<CustomerList | null>(
+    null,
+  );
+  const first = firstCustomers.data;
+  const needsMore = Boolean(first && first.items.length < first.total);
+  useEffect(() => {
+    if (!needsMore || !first) return;
+    const initial = first;
+    let active = true;
+    async function loadRemaining() {
+      const items = [...initial.items];
+      const params = new URLSearchParams({
+        q: query,
+        status: "all",
+        credit: "all",
+        pageSize: "100",
+      });
+      for (
+        let nextPage = 2;
+        nextPage <= Math.ceil(initial.total / 100);
+        nextPage++
+      ) {
+        params.set("page", String(nextPage));
+        const result = await api<CustomerList>("/customers?" + params);
+        if (!active) return;
+        items.push(...result.items);
+      }
+      if (active)
+        setAllCustomers({ first: initial, data: { ...initial, items } });
+    }
+    loadRemaining().catch(() => {
+      if (active) setCustomerFailure(initial);
+    });
+    return () => {
+      active = false;
+    };
+  }, [needsMore, first, query]);
+  const customerData = needsMore
+    ? allCustomers?.first === first
+      ? allCustomers.data
+      : null
+    : first;
+  const customerError =
+    firstCustomers.error ||
+    (needsMore && customerFailure === first ? "Unable to load customers." : "");
+  const customers = {
+    data: customerData,
+    error: customerError,
+    loading:
+      firstCustomers.loading ||
+      Boolean(needsMore && !customerData && !customerError),
+  };
+  const selected = customers.data?.items.find((item) => item.id === selectedId);
   const resource = useCatalogResource<CustomerLedger>(
     !preview && selected
       ? `/customers/${selected.id}/ledger?${new URLSearchParams(period.from && period.to ? period : {})}`
@@ -231,46 +277,19 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
     true,
   );
   const ledger = resource.data;
+  const recentItems = ledger ? [...ledger.items].reverse() : [];
   const customer = ledger?.customer ?? selected;
-  const pageSize = 15;
-  const pages = Math.max(1, Math.ceil((ledger?.items.length ?? 0) / pageSize));
-  const currentPage = Math.min(page, pages);
   const canCollect = Boolean(
     user?.permissions.some((p) =>
       ["finance.write", "payments.customer"].includes(p),
     ),
   );
-  const customerPages = Math.max(
-    1,
-    Math.ceil((customers.data?.total ?? 0) / 10),
-  );
-  function applyPeriod(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (Boolean(from) !== Boolean(to) || (from && from > to)) {
-      setFilterError("Choose a valid start and end date.");
-      return;
-    }
-    setFilterError("");
-    setPeriod({ from, to });
-    setPage(1);
-  }
   // Omit empty dates so the API can distinguish all-time from a filtered statement.
   const hasPeriod = Boolean(period.from && period.to);
   return (
     <section className="customer-ledger" aria-label="Customer ledger">
       <div className="ledger-print-brand">
         Howlader Battery<span>Customer statement</span>
-      </div>
-      <div className="ledger-page-heading">
-        <Button
-          className="ledger-print-button"
-          variant="outline"
-          size="sm"
-          disabled={!ledger || Boolean(resource.error)}
-          onClick={() => window.print()}
-        >
-          <Printer size={16} /> Print / PDF
-        </Button>
       </div>
       <div className="ledger-layout">
         <aside className="ledger-customers erp-panel">
@@ -293,7 +312,6 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                 aria-pressed={selected?.id === item.id}
                 onClick={() => {
                   setSelectedId(item.id);
-                  setPage(1);
                   setReceipt("");
                 }}
               >
@@ -318,32 +336,24 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
               <p className="ledger-empty">
                 {customers.loading
                   ? "Loading customers…"
-                  : preview
-                    ? "Sign in to view customers."
-                    : "No matching customers."}
+                  : customers.error
+                    ? "Unable to load customers."
+                    : preview
+                      ? "Sign in to view customers."
+                      : "No matching customers."}
               </p>
+            ) : null}
+            {customers.error ? (
+              <Button
+                variant="outline"
+                onClick={() => setRevision((value) => value + 1)}
+              >
+                Retry
+              </Button>
             ) : null}
           </div>
           <div className="ledger-customer-pager">
             <span>{customers.data?.total ?? 0} customers</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Previous ledger customers"
-              disabled={customerPage <= 1 || customers.loading}
-              onClick={() => setCustomerPage((p) => p - 1)}
-            >
-              <ChevronLeft size={15} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Next ledger customers"
-              disabled={customerPage >= customerPages || customers.loading}
-              onClick={() => setCustomerPage((p) => p + 1)}
-            >
-              <ChevronRight size={15} />
-            </Button>
           </div>
         </aside>
         <div className="ledger-statement">
@@ -352,14 +362,21 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
               <Users size={23} />
             </span>
             <div className="ledger-contact">
-              <h3>{customer?.name ?? "Select a customer"}</h3>
-              <div>
+              <h3 className="ledger-name-line">
+                <span
+                  className="ledger-customer-display-name"
+                  title={customer?.name}
+                >
+                  {customer?.name ?? "Select a customer"}
+                </span>
                 {customer?.phone ? (
-                  <span>
+                  <span className="ledger-heading-phone">
                     <Phone size={13} />
                     {customer.phone}
                   </span>
                 ) : null}
+              </h3>
+              <div>
                 {customer?.address ? (
                   <span>
                     <MapPin size={13} />
@@ -367,10 +384,6 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                   </span>
                 ) : null}
               </div>
-            </div>
-            <div className="ledger-current-due">
-              <span>Current due</span>
-              <strong>{money(customer?.due)}</strong>
             </div>
             <Button
               size="sm"
@@ -387,26 +400,11 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
               <Plus size={16} /> Collect Due
             </Button>
           </div>
-          <form className="ledger-period" onSubmit={applyPeriod}>
-            <Field label="From">
-              <input
-                aria-label="Ledger from date"
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-              />
-            </Field>
-            <Field label="To">
-              <input
-                aria-label="Ledger to date"
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-              />
-            </Field>
-            <Button type="submit" size="sm">
-              Apply
-            </Button>
+          <div
+            className="ledger-period"
+            role="group"
+            aria-label="Ledger date range"
+          >
             <Button
               type="button"
               size="sm"
@@ -414,11 +412,7 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
               disabled={!today}
               onClick={() => {
                 const start = today.slice(0, 7) + "-01";
-                setFrom(start);
-                setTo(today);
                 setPeriod({ from: start, to: today });
-                setPage(1);
-                setFilterError("");
               }}
             >
               This Month
@@ -428,19 +422,15 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
               size="sm"
               variant="ghost"
               onClick={() => {
-                setFrom("");
-                setTo("");
                 setPeriod({ from: "", to: "" });
-                setPage(1);
-                setFilterError("");
               }}
             >
               All Time
             </Button>
-          </form>
-          {filterError || resource.error || customers.error ? (
+          </div>
+          {resource.error || customers.error ? (
             <div role="alert" className="ledger-error">
-              <span>{filterError || resource.error || customers.error}</span>
+              <span>{resource.error || customers.error}</span>
               {resource.error || customers.error ? (
                 <Button
                   variant="outline"
@@ -530,7 +520,7 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                   <tr>
                     {[
                       "তারিখ",
-                      "ইনভয়েস / বিবরণ",
+                      "ইনভয়েস",
                       "বিক্রি (৳)",
                       "জমা (৳)",
                       "বাকি (৳)",
@@ -542,6 +532,32 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                   </tr>
                 </thead>
                 <tbody>
+                  {recentItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="ledger-date">
+                        {shortBusinessDate(item.date)}
+                      </td>
+                      <td className="ledger-reference" title={item.reference}>
+                        {item.reference}
+                        {item.description ? (
+                          <span className="ledger-description">
+                            {item.description}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {item.kind === "payment"
+                          ? "N/A"
+                          : item.debit !== "0.00"
+                            ? money(item.debit)
+                            : "—"}
+                      </td>
+                      <td className="ledger-credit">
+                        {cents(item.credit) ? money(item.credit) : "—"}
+                      </td>
+                      <td>{money(item.balance)}</td>
+                    </tr>
+                  ))}
                   {ledger && ledger.summary.opening !== "0.00" ? (
                     <tr className="ledger-opening-row">
                       <td colSpan={2}>
@@ -553,32 +569,6 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                       <td>{money(ledger?.summary.opening)}</td>
                     </tr>
                   ) : null}
-                  {ledger?.items.map((item, index) => (
-                    <tr
-                      key={item.id}
-                      className={
-                        index < (currentPage - 1) * pageSize ||
-                        index >= currentPage * pageSize
-                          ? "ledger-print-row"
-                          : undefined
-                      }
-                    >
-                      <td className="ledger-date">{businessDate(item.date)}</td>
-                      <td className="ledger-reference" title={item.reference}>
-                        {item.reference}
-                        {item.description ? (
-                          <span className="ledger-description">
-                            {item.description}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>{item.debit !== "0.00" ? money(item.debit) : "—"}</td>
-                      <td className="ledger-credit">
-                        {cents(item.credit) ? money(item.credit) : "—"}
-                      </td>
-                      <td>{money(item.balance)}</td>
-                    </tr>
-                  ))}
                   {!ledger?.items.length ? (
                     <tr>
                       <td colSpan={5}>
@@ -613,32 +603,6 @@ export function CustomerLedgerView({ preview }: { preview: boolean }) {
                 </tfoot>
               </table>
             </div>
-            <footer>
-              <span>
-                {ledger?.items.length ?? 0}টি লেনদেন · পৃষ্ঠা {currentPage} /{" "}
-                {pages}
-              </span>
-              <div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Previous ledger page"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  <ChevronLeft size={16} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Next ledger page"
-                  disabled={currentPage >= pages}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  <ChevronRight size={16} />
-                </Button>
-              </div>
-            </footer>
           </div>
         </div>
       </div>

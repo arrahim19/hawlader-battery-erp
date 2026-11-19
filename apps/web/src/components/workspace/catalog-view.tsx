@@ -1,5 +1,10 @@
 "use client";
-import { useDeferredValue, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AlertDialog, Dialog } from "radix-ui";
 import {
   BatteryCharging,
@@ -30,13 +35,22 @@ type DeleteTarget = {
 
 const columns = [
   "#",
-  "পণ্যের নাম (Product)",
-  "ধরন",
-  "Model Number",
-  "পরিমাণ (Pcs)",
-  "Purchase Price (৳)",
-  "ওয়ারেন্টি",
+  "Product",
+  "Category",
+  "Model",
+  "Qty (Pcs)",
+  "Unit Price (৳)",
+  "Warranty",
 ];
+const mobileInventoryQuery = "(max-width: 1023px)";
+function subscribeMobileInventory(listener: () => void) {
+  const query = window.matchMedia(mobileInventoryQuery);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+const mobileInventorySnapshot = () =>
+  window.matchMedia(mobileInventoryQuery).matches;
+const desktopInventorySnapshot = () => false;
 
 function EasyBikeIcon() {
   return (
@@ -76,6 +90,11 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const mobile = useSyncExternalStore(
+    subscribeMobileInventory,
+    mobileInventorySnapshot,
+    desktopInventorySnapshot,
+  );
   const [revision, setRevision] = useState(0);
   const [productNameOpen, setProductNameOpen] = useState(false);
   const [nameFormTypeId, setNameFormTypeId] = useState("");
@@ -89,8 +108,8 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const metadataParams = new URLSearchParams({ status });
   const params = new URLSearchParams({
     status,
-    page: String(page),
-    pageSize: String(pageSize),
+    page: String(mobile ? 1 : page),
+    pageSize: String(mobile ? 100 : pageSize),
   });
   if (typeId) params.set("typeId", typeId);
   if (categoryId) params.set("categoryId", categoryId);
@@ -100,11 +119,65 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
     revision,
     true,
   );
-  const products = useCatalogResource<ProductList>(
+  const firstProducts = useCatalogResource<ProductList>(
     preview ? null : "/products?" + params,
     revision,
     true,
   );
+  const [allProducts, setAllProducts] = useState<{
+    first: ProductList;
+    data: ProductList;
+  } | null>(null);
+  const [productFailure, setProductFailure] = useState<ProductList | null>(
+    null,
+  );
+  const first = firstProducts.data;
+  const needsMore = Boolean(
+    mobile && first && first.items.length < first.total,
+  );
+  const requestParams = params.toString();
+  useEffect(() => {
+    if (!needsMore || !first) return;
+    const initial = first;
+    let active = true;
+    async function loadRemaining() {
+      const items = [...initial.items];
+      const query = new URLSearchParams(requestParams);
+      for (
+        let nextPage = 2;
+        nextPage <= Math.ceil(initial.total / 100);
+        nextPage++
+      ) {
+        query.set("page", String(nextPage));
+        const result = await api<ProductList>("/products?" + query);
+        if (!active) return;
+        items.push(...result.items);
+      }
+      if (active)
+        setAllProducts({ first: initial, data: { ...initial, items } });
+    }
+    loadRemaining().catch(() => {
+      if (active) setProductFailure(initial);
+    });
+    return () => {
+      active = false;
+    };
+  }, [needsMore, first, requestParams]);
+  const productData = needsMore
+    ? allProducts?.first === first
+      ? allProducts.data
+      : null
+    : first;
+  const productError =
+    firstProducts.error ||
+    (needsMore && productFailure === first ? "Unable to load products." : "");
+  const products = {
+    data: productData,
+    error: productError,
+    loading:
+      firstProducts.loading ||
+      Boolean(needsMore && !productData && !productError),
+  };
   const selectedType = metadata.data?.types.find((item) => item.id === typeId);
   const selectedName = metadata.data?.categories.find(
     (item) => item.id === categoryId && item.typeIds?.includes(typeId),
@@ -373,7 +446,9 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
                   ) : null}
                   {products.data?.items.map((product, index) => (
                     <tr key={product.id}>
-                      <td>{(page - 1) * pageSize + index + 1}</td>
+                      <td>
+                        {(mobile ? 0 : (page - 1) * pageSize) + index + 1}
+                      </td>
                       <td>
                         <strong>{product.name}</strong>
                       </td>
@@ -383,7 +458,12 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
                       <td className="whitespace-nowrap">
                         {product.latestPurchasePrice == null
                           ? "ক্রয় নিশ্চিত হয়নি"
-                          : money(product.latestPurchasePrice)}
+                          : Number(product.latestPurchasePrice) !== 0
+                            ? money(product.latestPurchasePrice).replace(
+                                /\.00$/,
+                                "",
+                              )
+                            : money(product.latestPurchasePrice)}
                       </td>
                       <td>{product.warrantyMonths} মাস</td>
                     </tr>
@@ -399,46 +479,51 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
             />
           )}
           <div className="erp-pager">
-            <label>
-              প্রতি পাতায় দেখান:
-              <select
-                aria-label="Products per page"
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setPage(1);
-                }}
-              >
-                {[10, 25, 50].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!mobile ? (
+              <label>
+                প্রতি পাতায় দেখান:
+                <select
+                  aria-label="Products per page"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {[10, 25, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <span>
-              {products.data?.total ?? 0} products · {page} / {pages}
+              {products.data?.total ?? 0} products
+              {!mobile ? ` · ${page} / ${pages}` : ""}
             </span>
-            <div>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Previous product page"
-                disabled={page <= 1 || products.loading}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Next product page"
-                disabled={page >= pages || products.loading}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
+            {!mobile ? (
+              <div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Previous product page"
+                  disabled={page <= 1 || products.loading}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Next product page"
+                  disabled={page >= pages || products.loading}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            ) : null}
           </div>
         </Panel>
       </div>

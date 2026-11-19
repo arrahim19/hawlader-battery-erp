@@ -1702,6 +1702,7 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
     ),
   );
   const result = concurrent[0].body.data;
+  assert.match(result.number, /^PUR-\d{6}$/);
   assert.equal(result.total, "2000.20");
   assert.equal(result.paid, "500.05");
   assert.equal(result.due, "1500.15");
@@ -1790,6 +1791,14 @@ test("purchase receiving posts exact stock, costs and supplier payment once; inv
   const listing = (
     await owner.get("/api/v1/purchases?pageSize=100").expect(200)
   ).body.data;
+  const detailedPurchase = listing.items.find(
+    (item: { id: string }) => item.id === result.id,
+  );
+  assert.equal(detailedPurchase.items.length, 1);
+  assert.equal(detailedPurchase.items[0].quantity, "2");
+  assert.equal(detailedPurchase.items[0].total, "2000.20");
+  assert.equal(typeof detailedPurchase.items[0].model, "string");
+  assert.equal(typeof detailedPurchase.items[0].warrantyMonths, "number");
   assert.equal(
     listing.items.find((item: { id: string }) => item.id === result.id).due,
     "1500.15",
@@ -2497,6 +2506,7 @@ test("deleting sales and unused purchases reverses exact stock and payments once
     {
       supplierId: suppliers.find((s) => s.productTypeId === parts.type.id)!.id,
       purchaseDate: "2025-01-01",
+      reference: "Reversal parts receipt",
       items: [{ productId: parts.id, quantity: 5, unitPrice: "10.00" }],
       paidAmount: "20.00",
       paymentAccountId: cash.id,
@@ -2505,13 +2515,14 @@ test("deleting sales and unused purchases reverses exact stock and payments once
       supplierId: suppliers.find((s) => s.productTypeId === battery.type.id)!
         .id,
       purchaseDate: "2025-01-01",
+      reference: "Reversal battery receipt",
       items: [{ productId: battery.id, quantity: 2, unitPrice: "100.00" }],
       paidAmount: "50.00",
       paymentAccountId: cash.id,
     },
   ];
   const purchaseKeys = [randomUUID(), randomUUID()];
-  const purchases: { id: string }[] = [];
+  const purchases: { id: string; number: string }[] = [];
   for (let index = 0; index < purchaseBodies.length; index++) {
     const response = await write(
       "purchases/receive",
@@ -2521,6 +2532,11 @@ test("deleting sales and unused purchases reverses exact stock and payments once
     assert.equal(response.status, 201, JSON.stringify(response.body));
     purchases.push(response.body.data);
   }
+  assert.match(purchases[0].number, /^PUR-\d{6}$/);
+  assert.equal(
+    Number(purchases[1].number.slice(4)),
+    Number(purchases[0].number.slice(4)) + 1,
+  );
   const saleBody = {
     customerId: customer.id,
     saleDate: "2025-01-31",
@@ -3241,6 +3257,7 @@ test("receiving batteries without serial numbers creates stock and replays safel
     {
       supplierId: partSupplier.id,
       purchaseDate: body.purchaseDate,
+      reference: "Valuation parts receipt " + id,
       items: [
         {
           productId: partProduct.body.data.id,

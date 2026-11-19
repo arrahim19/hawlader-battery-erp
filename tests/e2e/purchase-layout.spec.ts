@@ -366,7 +366,23 @@ test("purchase navigation and delayed list responses keep the layout stable", as
                 supplier: {
                   id: "layout-supplier",
                   name: "A supplier with a longer company name",
+                  company: "Layout Company",
                 },
+                items: [
+                  {
+                    id: `layout-item-${index}`,
+                    name: `Layout product ${index + 1}`,
+                    typeName: "Parts",
+                    model: "Layout model",
+                    capacityAh: null,
+                    voltage: null,
+                    specifications: null,
+                    warrantyMonths: 0,
+                    quantity: "3",
+                    unitPrice: "41152.26",
+                    total: "123456.78",
+                  },
+                ],
                 purchaseDate: "2026-11-13",
                 status: "RECEIVED",
                 itemCount: 2,
@@ -450,7 +466,7 @@ test("purchase navigation and delayed list responses keep the layout stable", as
   expect(await listGeometry()).toEqual(reserved);
   releaseList!();
   await expect(
-    page.getByRole("cell", { name: "RECEIVED", exact: true }),
+    page.getByRole("cell", { name: /^Layout product \d+$/ }),
   ).toHaveCount(20);
   expect(await listGeometry()).toEqual(reserved);
   expect(await shellGeometry()).toEqual(original);

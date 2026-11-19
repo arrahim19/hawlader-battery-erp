@@ -18,6 +18,8 @@ export function PreviewContent() {
     requestedModule === "products" ? "inventory" : requestedModule;
   const view = query.get("view") ?? undefined;
   useEffect(() => {
+    if (moduleId === "sales" && view === "collections")
+      router.replace("/preview?module=customers&view=ledger");
     if (moduleId === "inventory" && view)
       router.replace("/preview?module=inventory");
   }, [moduleId, router, view]);

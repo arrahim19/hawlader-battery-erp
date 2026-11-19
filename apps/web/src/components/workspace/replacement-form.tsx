@@ -1,4 +1,5 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, Plus } from "lucide-react";
@@ -82,7 +83,7 @@ export function ReplacementForm({ preview }: { preview: boolean }) {
       return;
     setSaving(true);
     setError("");
-    const id = requestId ?? crypto.randomUUID();
+    const id = requestId ?? randomId();
     setRequestId(id);
     try {
       await post("/replacements", {
@@ -150,6 +151,7 @@ export function ReplacementForm({ preview }: { preview: boolean }) {
           <Field label="Customer / Invoice / Model Number">
             <input
               aria-label="Customer / Invoice / Model Number"
+              className="search-input"
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value);

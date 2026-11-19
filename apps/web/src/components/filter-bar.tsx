@@ -24,7 +24,7 @@ export function FilterBar({
           onChange={(e) => onSearch(e.target.value)}
           aria-label="Search records"
           placeholder="Search records..."
-          className="pl-9"
+          className="search-input pl-9"
         />
       </div>
       <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-600">

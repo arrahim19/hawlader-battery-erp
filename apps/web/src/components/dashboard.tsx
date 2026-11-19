@@ -46,7 +46,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
   const [details, setDetails] = useState<
     DashboardData["recentSales"][number] | null
   >(null);
-  const detailsButton = useRef<HTMLButtonElement | null>(null);
+  const detailsTrigger = useRef<HTMLElement | null>(null);
   const start = new Date((today || "2000-01-01") + "T12:00:00Z");
   start.setUTCDate(
     start.getUTCDate() - (period === "week" ? 6 : period === "month" ? 29 : 0),
@@ -296,7 +296,48 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                 </thead>
                 <tbody>
                   {data.recentSales.slice(0, 5).map((sale) => (
-                    <tr key={sale.id}>
+                    <tr
+                      key={sale.id}
+                      tabIndex={
+                        !preview &&
+                        sale.customerId &&
+                        (has("sales.manage") || has("parties.customers"))
+                          ? 0
+                          : undefined
+                      }
+                      className={
+                        !preview &&
+                        sale.customerId &&
+                        (has("sales.manage") || has("parties.customers"))
+                          ? "cursor-pointer hover:bg-green-50 focus-visible:outline-2 focus-visible:outline-green-600 outline-offset-[-2px]"
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        if (
+                          preview ||
+                          !sale.customerId ||
+                          !(has("sales.manage") || has("parties.customers")) ||
+                          (event.target as HTMLElement).closest("button")
+                        )
+                          return;
+                        detailsTrigger.current = event.currentTarget;
+                        setDetails(sale);
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.target !== event.currentTarget ||
+                          preview ||
+                          !sale.customerId ||
+                          !(has("sales.manage") || has("parties.customers"))
+                        )
+                          return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          detailsTrigger.current = event.currentTarget;
+                          setDetails(sale);
+                        }
+                      }}
+                    >
                       <td>{sale.invoiceNumber}</td>
                       <td>
                         {sale.soldAt
@@ -317,7 +358,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
                           }
                           aria-label={`Details ${sale.invoiceNumber ?? sale.id}`}
                           onClick={(event) => {
-                            detailsButton.current = event.currentTarget;
+                            detailsTrigger.current = event.currentTarget;
                             setDetails(sale);
                           }}
                         >
@@ -437,7 +478,7 @@ export function Dashboard({ preview = false }: { preview?: boolean }) {
           }}
           preview={preview}
           onClose={() => setDetails(null)}
-          returnFocus={() => detailsButton.current?.focus()}
+          returnFocus={() => detailsTrigger.current?.focus()}
         />
       ) : null}
     </div>

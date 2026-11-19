@@ -1,4 +1,5 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import { useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { LoaderCircle, Plus, X } from "lucide-react";
@@ -40,7 +41,7 @@ function ExpenseForm({
     };
     const signature = JSON.stringify(body);
     if (submission.current?.signature !== signature)
-      submission.current = { signature, key: crypto.randomUUID() };
+      submission.current = { signature, key: randomId() };
     submitting.current = true;
     setSaving(true);
     onSavingChange(true);

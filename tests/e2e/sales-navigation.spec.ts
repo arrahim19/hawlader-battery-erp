@@ -50,12 +50,7 @@ test("sales navigation keeps the header and tabs fixed during delayed loads", as
       ),
     );
   const initial = await geometry();
-  for (const label of [
-    "Sales List",
-    "Sales Return",
-    "Due Collections",
-    "New Sale",
-  ]) {
+  for (const label of ["Sales List", "New Sale"]) {
     await page.evaluate(() => {
       const state = window as unknown as { salesFrames: unknown[] };
       state.salesFrames = [];

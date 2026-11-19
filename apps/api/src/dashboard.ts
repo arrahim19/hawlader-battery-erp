@@ -111,7 +111,7 @@ export class DashboardService {
             select: { amount: true },
           },
         },
-        orderBy: { soldAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 5,
       }),
       this.db.$queryRaw<

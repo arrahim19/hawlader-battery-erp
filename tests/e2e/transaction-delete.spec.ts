@@ -200,7 +200,7 @@ for (const [kind, view] of [
     }
     if (kind === "sales" && view !== "list")
       await page
-        .getByRole("button", { name: "Recent Sales", exact: true })
+        .getByRole("button", { name: "Sales List", exact: true })
         .click();
     const trigger = page.getByRole("button", {
       name: "Delete " + label,

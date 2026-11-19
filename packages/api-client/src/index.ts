@@ -230,7 +230,8 @@ export interface PurchaseList {
     id: string;
     number: string;
     supplierReference: string | null;
-    supplier: { id: string; name: string };
+    supplier: { id: string; name: string; company: string | null };
+    items: RecentPurchases["items"][number]["items"];
     purchaseDate: string;
     status: string;
     itemCount: number;

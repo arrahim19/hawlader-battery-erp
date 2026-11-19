@@ -8,7 +8,6 @@ import {
   List,
   Plus,
   Printer,
-  RotateCcw,
   Save,
   ScanLine,
   ShoppingCart,
@@ -125,7 +124,6 @@ export function TransactionView({
     "pending",
     "payments",
     "returns",
-    "collections",
     "reports",
   ].includes(view)
     ? view
@@ -172,12 +170,6 @@ export function TransactionView({
             : [
                 { id: "new", label: "New Sale", icon: ShoppingCart },
                 { id: "list", label: "Sales List", icon: List },
-                { id: "returns", label: "Sales Return", icon: RotateCcw },
-                {
-                  id: "collections",
-                  label: "Due Collections",
-                  icon: ClipboardList,
-                },
               ]
         }
       />

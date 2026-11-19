@@ -1,4 +1,5 @@
 "use client";
+import { randomId } from "@/lib/random-id";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -24,7 +25,6 @@ import {
   post,
   type PurchaseOptions,
   type PurchaseList,
-  type RecentPurchases,
   type ReceivedPurchase,
   type CatalogProduct,
 } from "@/lib/api";
@@ -32,8 +32,8 @@ import { useCatalogResource } from "@/lib/use-catalog-resource";
 import { notifyDashboardUpdate } from "@/lib/use-dashboard";
 import { useBusinessDate } from "@/lib/use-business-date";
 import { cents, decimalAmount } from "@/lib/purchase-amounts";
-import { money } from "@/lib/utils";
-import { PurchaseDetailsButton, PurchaseQuickAdd } from "./purchase-quick-add";
+import { money, shortBusinessDate } from "@/lib/utils";
+import { PurchaseDetailsDialog, PurchaseQuickAdd } from "./purchase-quick-add";
 import { TransactionDeleteButton } from "./transaction-delete-button";
 type CartItem = {
   productId: string;
@@ -59,6 +59,15 @@ type PurchaseDraft = {
   requestKey: string | null;
   requestBody?: string;
 };
+function purchaseDisplayNumber(number: string) {
+  return /^PUR-\d+$/.test(number) ? String(Number(number.slice(4))) : number;
+}
+function purchaseListMoney(value?: string | null) {
+  const formatted = money(value);
+  return value != null && Number(value) !== 0
+    ? formatted.replace(/\.00$/, "")
+    : formatted;
+}
 function readPurchaseDraft(key: string): PurchaseDraft | null {
   if (typeof window === "undefined") return null;
   try {
@@ -113,16 +122,16 @@ export function PurchasesView({
   const [mobileSection, setMobileSection] = useState(0);
   const formGrid = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
+  const [purchaseDetails, setPurchaseDetails] = useState<
+    PurchaseList["items"][number] | null
+  >(null);
+  const detailsRow = useRef<HTMLTableRowElement | null>(null);
   const options = useCatalogResource<PurchaseOptions>(
     preview || loading || view === "list" ? null : "/purchases/options",
     revision,
   );
   const listing = useCatalogResource<PurchaseList>(
     !preview && !loading && view === "list" ? `/purchases?page=${page}` : null,
-    revision,
-  );
-  const recent = useCatalogResource<RecentPurchases>(
-    preview || loading || view === "list" ? null : "/purchases/recent",
     revision,
   );
   const [supplierId, setSupplierId] = useState(draft?.supplierId ?? "");
@@ -390,7 +399,7 @@ export function PurchasesView({
       };
       const serialized = JSON.stringify(body);
       if (!requestKey.current || requestBody.current !== serialized) {
-        requestKey.current = crypto.randomUUID();
+        requestKey.current = randomId();
         requestBody.current = serialized;
       }
       const result = await post<ReceivedPurchase>("/purchases/receive", body, {
@@ -488,73 +497,176 @@ export function PurchasesView({
       </div>
       {current === "list" ? (
         <Panel title="Purchase List" className="purchase-list-panel">
-          <div className="purchase-list-body" aria-busy={listLoading}>
+          <div
+            className="purchase-list-body"
+            aria-busy={loading || listing.loading}
+          >
             <div className="erp-table-wrap">
-              <table className="erp-table">
+              <table className="erp-table purchase-recent-table">
                 <caption className="sr-only">Purchases</caption>
                 <colgroup>
-                  {[18, 17, 12, 6, 6, 11, 10, 10, 10].map((width, index) => (
-                    <col key={index} style={{ width: `${width}%` }} />
-                  ))}
+                  {[7, 11, 13, 9, 7, 12, 9, 6, 4, 9, 9, 4].map(
+                    (width, index) => (
+                      <col key={index} style={{ width: `${width}%` }} />
+                    ),
+                  )}
                 </colgroup>
                 <thead>
                   <tr>
                     {[
-                      "Purchase",
-                      "Supplier",
                       "Date",
-                      "Items",
+                      "Supplier",
+                      "Company Name",
+                      "Challan No.",
+                      "Category",
+                      "পণ্যের নাম",
+                      "Model",
+                      "ওয়ারেন্টি",
                       "Qty",
-                      "Total",
-                      "Paid",
-                      "Due",
-                      "Status",
+                      "Unit Price (৳)",
+                      "Total (৳)",
+                      "Action",
                     ].map((label) => (
-                      <th key={label}>{label}</th>
+                      <th
+                        key={label}
+                        scope="col"
+                        className={
+                          label === "Action"
+                            ? "purchase-action-cell"
+                            : undefined
+                        }
+                      >
+                        {label}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {listing.data?.items.map((purchase) => (
-                    <tr key={purchase.id}>
-                      <td className="max-w-56 break-all">
-                        {purchase.number}
-                        {purchase.supplierReference ? (
-                          <small className="mt-1 block">
-                            {purchase.supplierReference}
-                          </small>
+                  {listing.data?.items.flatMap((purchase) =>
+                    purchase.items.map((item, index) => (
+                      <tr
+                        key={item.id}
+                        tabIndex={0}
+                        aria-label={`View purchase ${purchaseDisplayNumber(purchase.number)} details for ${item.name}`}
+                        className="cursor-pointer hover:bg-green-50 focus-visible:outline-2 focus-visible:outline-green-600 outline-offset-[-2px]"
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (
+                            !event.currentTarget.contains(target) ||
+                            target.closest("button")
+                          )
+                            return;
+                          detailsRow.current = event.currentTarget;
+                          setPurchaseDetails(purchase);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            detailsRow.current = event.currentTarget;
+                            setPurchaseDetails(purchase);
+                          }
+                        }}
+                      >
+                        {index === 0 ? (
+                          <>
+                            <td
+                              data-label="Date"
+                              rowSpan={purchase.items.length}
+                            >
+                              {shortBusinessDate(purchase.purchaseDate)}
+                            </td>
+                            <td
+                              data-label="Supplier"
+                              rowSpan={purchase.items.length}
+                            >
+                              {purchase.supplier.name}
+                            </td>
+                            <td
+                              data-label="Company Name"
+                              rowSpan={purchase.items.length}
+                            >
+                              {purchase.supplier.company || "—"}
+                            </td>
+                            <td
+                              data-label="Challan No."
+                              rowSpan={purchase.items.length}
+                            >
+                              {purchase.supplierReference || "—"}
+                            </td>
+                          </>
                         ) : null}
-                      </td>
-                      <td>{purchase.supplier.name}</td>
-                      <td>{purchase.purchaseDate}</td>
-                      <td>{purchase.itemCount}</td>
-                      <td>{purchase.quantity}</td>
-                      <td>{money(purchase.total)}</td>
-                      <td>{money(purchase.paid)}</td>
-                      <td>{money(purchase.due)}</td>
-                      <td>{purchase.status}</td>
-                    </tr>
-                  ))}
+                        <td data-label="Category">{item.typeName}</td>
+                        <td data-label="পণ্যের নাম">
+                          <strong>{item.name}</strong>
+                        </td>
+                        <td data-label="Model">{item.model.trim() || "N/A"}</td>
+                        <td data-label="ওয়ারেন্টি">{item.warrantyMonths} মাস</td>
+                        <td data-label="Qty">{item.quantity}</td>
+                        <td data-label="Unit Price (৳)">
+                          {purchaseListMoney(item.unitPrice)}
+                        </td>
+                        <td data-label="Total (৳)">
+                          {purchaseListMoney(item.total)}
+                        </td>
+                        {index === 0 ? (
+                          <>
+                            <td
+                              data-label="Action"
+                              className="purchase-action-cell"
+                              rowSpan={purchase.items.length}
+                            >
+                              <TransactionDeleteButton
+                                kind="purchases"
+                                id={purchase.id}
+                                label={purchaseDisplayNumber(purchase.number)}
+                                preview={preview}
+                                onDeleted={() => {
+                                  if (received?.id === purchase.id) {
+                                    setReceived(null);
+                                    setConfirmedItems([]);
+                                  }
+                                  setPage(1);
+                                  setRevision((value) => value + 1);
+                                }}
+                              />
+                            </td>
+                          </>
+                        ) : null}
+                      </tr>
+                    )),
+                  )}
                 </tbody>
               </table>
             </div>
-            {listLoading ? (
-              <div className="purchase-list-message" role="status">
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
+            {listing.error ? (
+              <div
+                className="erp-empty purchase-cart-empty purchase-recent-error"
+                role="alert"
+              >
+                <PackageOpen size={26} strokeWidth={1.3} />
+                <p>Purchase List লোড করা যায়নি</p>
+                <span>{listing.error}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRevision((value) => value + 1)}
+                >
+                  Retry purchases
+                </Button>
+              </div>
+            ) : loading || listing.loading ? (
+              <div className="erp-empty purchase-cart-empty" role="status">
+                <LoaderCircle className="animate-spin" />
                 <p>Loading purchases...</p>
               </div>
             ) : !listing.data?.items.length ? (
-              <div className="purchase-list-message">
-                <PackageOpen aria-hidden="true" />
-                <p>
-                  {listing.error
-                    ? "Unable to load purchases"
-                    : "No records to display"}
-                </p>
+              <div className="erp-empty purchase-cart-empty" role="status">
+                <PackageOpen size={26} strokeWidth={1.3} />
+                <p>No records to display</p>
                 <span>
-                  {listing.error
-                    ? "Retry to load the purchase list."
-                    : "Purchase গ্রহণ করলে তালিকায় দেখা যাবে।"}
+                  Confirm Purchase করলে কেনাকাটার তথ্য এখানে দেখা যাবে।
                 </span>
               </div>
             ) : null}
@@ -594,7 +706,7 @@ export function PurchasesView({
           autoComplete="off"
         >
           <nav className="purchase-mobile-tabs" aria-label="Purchase sections">
-            {["Details", "Recent Purchases", "Payment"].map((label, index) => (
+            {["Details", "Payment"].map((label, index) => (
               <Button
                 key={index}
                 type="button"
@@ -604,7 +716,7 @@ export function PurchasesView({
                 onClick={() => {
                   formGrid.current
                     ?.querySelectorAll<HTMLElement>(
-                      ".purchase-details, .purchase-items, .erp-form-side",
+                      ".purchase-details, .erp-form-side",
                     )
                     [index]?.scrollIntoView({
                       behavior: "smooth",
@@ -631,7 +743,7 @@ export function PurchasesView({
                   Math.max(
                     0,
                     Math.min(
-                      2,
+                      1,
                       Math.round(
                         element.scrollLeft / (element.clientWidth + 12),
                       ),
@@ -793,6 +905,9 @@ export function PurchasesView({
                         <input
                           aria-label="Purchase product model number"
                           value={model}
+                          placeholder={
+                            productName && !individual ? "N/A" : undefined
+                          }
                           maxLength={160}
                           disabled={!productName}
                           onChange={(event) => setModel(event.target.value)}
@@ -932,8 +1047,8 @@ export function PurchasesView({
                               <div className="purchase-pending-name">
                                 <strong>{item.name}</strong>
                                 <span>
-                                  {item.model || item.typeName} ·{" "}
-                                  {item.quantity} × {money(item.unitPrice)}
+                                  {item.model.trim() || "N/A"} · {item.quantity}{" "}
+                                  × {money(item.unitPrice)}
                                 </span>
                               </div>
                               <strong>
@@ -965,178 +1080,6 @@ export function PurchasesView({
                           ))}
                         </ul>
                       </section>
-                    ) : null}
-                  </div>
-                </Panel>
-                <Panel title="Recent Purchases" className="purchase-items">
-                  <div
-                    className="purchase-cart-body"
-                    aria-busy={loading || recent.loading}
-                  >
-                    <div className="erp-table-wrap">
-                      <table
-                        className="erp-table purchase-recent-table"
-                        style={{ tableLayout: "auto" }}
-                      >
-                        <caption className="sr-only">Recent purchases</caption>
-                        <thead>
-                          <tr>
-                            {[
-                              "Date",
-                              "Supplier",
-                              "Company Name",
-                              "Challan No.",
-                              "Category",
-                              "পণ্যের নাম",
-                              "Model Number",
-                              "ওয়ারেন্টি",
-                              "Qty",
-                              "Unit Price (৳)",
-                              "Total (৳)",
-                              "Details",
-                              "Action",
-                            ].map((label) => (
-                              <th
-                                key={label}
-                                scope="col"
-                                className={
-                                  label === "Details"
-                                    ? "purchase-details-cell"
-                                    : label === "Action"
-                                      ? "purchase-action-cell"
-                                      : undefined
-                                }
-                              >
-                                {label}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recent.data?.items.flatMap((purchase) =>
-                            purchase.items.map((item, index) => (
-                              <tr key={item.id}>
-                                {index === 0 ? (
-                                  <>
-                                    <td
-                                      data-label="Date"
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      {purchase.purchaseDate}
-                                    </td>
-                                    <td
-                                      data-label="Supplier"
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      {purchase.supplier.name}
-                                    </td>
-                                    <td
-                                      data-label="Company Name"
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      {purchase.supplier.company || "—"}
-                                    </td>
-                                    <td
-                                      data-label="Challan No."
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      {purchase.supplierReference || "—"}
-                                    </td>
-                                  </>
-                                ) : null}
-                                <td data-label="Category">{item.typeName}</td>
-                                <td data-label="পণ্যের নাম">
-                                  <strong>{item.name}</strong>
-                                </td>
-                                <td data-label="Model Number">
-                                  {item.model.trim() || "N/A"}
-                                </td>
-                                <td data-label="ওয়ারেন্টি">
-                                  {item.warrantyMonths} মাস
-                                </td>
-                                <td data-label="Qty">{item.quantity}</td>
-                                <td data-label="Unit Price (৳)">
-                                  {money(item.unitPrice)}
-                                </td>
-                                <td data-label="Total (৳)">
-                                  {money(item.total)}
-                                </td>
-                                {index === 0 ? (
-                                  <>
-                                    <td
-                                      data-label="Details"
-                                      className="purchase-details-cell"
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      <PurchaseDetailsButton
-                                        purchase={purchase}
-                                      />
-                                    </td>
-                                    <td
-                                      data-label="Action"
-                                      className="purchase-action-cell"
-                                      rowSpan={purchase.items.length}
-                                    >
-                                      <TransactionDeleteButton
-                                        kind="purchases"
-                                        id={purchase.id}
-                                        label={purchase.number}
-                                        preview={preview}
-                                        onDeleted={() => {
-                                          if (received?.id === purchase.id) {
-                                            setReceived(null);
-                                            setConfirmedItems([]);
-                                          }
-                                          setPage(1);
-                                          setRevision((value) => value + 1);
-                                        }}
-                                      />
-                                    </td>
-                                  </>
-                                ) : null}
-                              </tr>
-                            )),
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    {recent.error ? (
-                      <div
-                        className="erp-empty purchase-cart-empty purchase-recent-error"
-                        role="alert"
-                      >
-                        <PackageOpen size={26} strokeWidth={1.3} />
-                        <p>Recent purchases লোড করা যায়নি</p>
-                        <span>{recent.error}</span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRevision((value) => value + 1)}
-                        >
-                          Retry recent purchases
-                        </Button>
-                      </div>
-                    ) : loading || recent.loading ? (
-                      <div
-                        className="erp-empty purchase-cart-empty"
-                        role="status"
-                      >
-                        <LoaderCircle className="animate-spin" />
-                        <p>Loading recent purchases...</p>
-                      </div>
-                    ) : !recent.data?.items.length ? (
-                      <div
-                        className="erp-empty purchase-cart-empty"
-                        role="status"
-                      >
-                        <PackageOpen size={26} strokeWidth={1.3} />
-                        <p>এখনো কোনো Purchase নিশ্চিত করা হয়নি</p>
-                        <span>
-                          Confirm Purchase করলে সাম্প্রতিক কেনাকাটার তথ্য এখানে
-                          দেখা যাবে।
-                        </span>
-                      </div>
                     ) : null}
                   </div>
                 </Panel>
@@ -1247,6 +1190,13 @@ export function PurchasesView({
           ) : null}
         </form>
       )}
+      {purchaseDetails ? (
+        <PurchaseDetailsDialog
+          purchase={purchaseDetails}
+          onClose={() => setPurchaseDetails(null)}
+          returnFocus={() => detailsRow.current?.focus()}
+        />
+      ) : null}
       {quickAdd && selectedType ? (
         <PurchaseQuickAdd
           kind={quickAdd}
