@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Cog,
-  Filter,
   Package,
   Search,
   X,
@@ -85,7 +84,6 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const user = useSession();
   const [typeId, setTypeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [status, setStatus] = useState("active");
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(1);
@@ -105,9 +103,9 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
   const [message, setMessage] = useState("");
   const canWrite =
     preview || Boolean(user?.permissions.includes("catalog.write"));
-  const metadataParams = new URLSearchParams({ status });
+  const metadataParams = new URLSearchParams({ status: "active" });
   const params = new URLSearchParams({
-    status,
+    status: "active",
     page: String(mobile ? 1 : page),
     pageSize: String(mobile ? 100 : pageSize),
   });
@@ -395,31 +393,7 @@ export function CatalogView({ preview = false }: { preview?: boolean }) {
                 </option>
               ))}
             </select>
-            <select
-              className="erp-select"
-              aria-label="Product status"
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="active">স্ট্যাটাস: সক্রিয়</option>
-              <option value="inactive">নিষ্ক্রিয়</option>
-              <option value="all">সকল স্ট্যাটাস</option>
-            </select>
-            <Button
-              variant="outline"
-              className="erp-button"
-              onClick={() => {
-                selectType("");
-                setSearch("");
-                setStatus("active");
-              }}
-            >
-              <Filter />
-              ফিল্টার রিসেট
-            </Button>
+
           </div>
           {products.loading || products.data?.items.length ? (
             <div className="erp-table-wrap" aria-busy={products.loading}>

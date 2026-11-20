@@ -4799,8 +4799,22 @@ textarea {
     display: none;
   }
   .inventory-products-panel .erp-filterbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
     gap: 6px;
     padding: 10px;
+  }
+  .inventory-products-panel .erp-filterbar > :is(.erp-search, .erp-select) {
+    min-width: 0;
+    width: 100%;
+    height: 36px;
+    padding-inline: 8px;
+  }
+  .inventory-products-panel .erp-search {
+    gap: 5px;
+  }
+  .inventory-products-panel .erp-search input {
+    font-size: 11px;
   }
   .inventory-products-panel .erp-pager {
     gap: 6px;
@@ -4887,7 +4901,8 @@ textarea {
 }
 @media (max-width: 1023px) {
   .app-shell.has-quick-access .app-body {
-    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    /* Navigation height (64px), bottom offset (5px), and shared content gap (8px). */
+    padding-bottom: calc(77px + env(safe-area-inset-bottom, 0px));
   }
   .mobile-quick-access {
     position: fixed;
@@ -5154,6 +5169,15 @@ textarea {
 
 .dashboard-shell .main-content {
   padding-bottom: 8px;
+}
+
+@media (max-width: 1023px) {
+  .app-shell .main-content,
+  .dashboard-page .dashboard-middle,
+  .sales-entry-workspace .sales-actions,
+  .purchase-page .erp-form-grid {
+    padding-bottom: 0;
+  }
 }
 
 /* One border treatment for search controls throughout the workspace. */
@@ -6820,6 +6844,40 @@ textarea {
 }
 .ledger-print-brand {
   display: none;
+}
+@media screen and (max-width: 1023px) {
+  /* Short lists fill the same content area as the dashboard table. */
+  .workspace-content > .customer-master-detail,
+  .workspace-content > .supplier-list-layout,
+  .workspace-content > .erp-panel:only-child {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .customer-master-detail > .customer-list-panel,
+  .supplier-list-layout > .erp-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .customer-list-panel > .erp-table-wrap,
+  .supplier-list-layout .supplier-table-body {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    overflow: auto;
+  }
+  .customer-list-panel > .erp-panel-heading,
+  .customer-list-panel > .erp-pager,
+  .supplier-list-layout .erp-pager {
+    flex-shrink: 0;
+  }
+  .workspace-content > .customer-ledger {
+    padding-bottom: 0;
+  }
 }
 @media print {
   .ledger-print-brand {
